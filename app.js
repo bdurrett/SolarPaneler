@@ -23,39 +23,61 @@ class SolarPanelMonitor {
     async loadPanelLayout() {
         try {
             console.log('Loading panel layout...');
-            const url = CONFIG.apiBaseUrl + CONFIG.panelLayoutEndpoint;
-            const response = await fetch(url);
             
-            if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
-            }
-            
-            const data = await response.json();
-            console.log('Panel layout data received:', data);
-            
-            // Handle the specific JSON format: {result: {panels: [...]}, success: "true"}
-            let panelsArray = [];
-            if (data.result && data.result.panels) {
-                panelsArray = data.result.panels;
-            } else if (Array.isArray(data)) {
-                panelsArray = data;
-            } else if (data.panels) {
-                panelsArray = data.panels;
-            } else if (data.Panels) {
-                panelsArray = data.Panels;
-            }
-            
-            console.log(`Found ${panelsArray.length} panels`);
-            
-            // Convert the API format to our internal format
-            // API format: {xCoordinate, yCoordinate, planeRotation, inverterSerialNumber}
-            
-            // First, find the minimum y coordinate to calculate offset for all panels
-            const allYCoords = panelsArray.map(p => p.yCoordinate || p.y || 0);
-            const minY = Math.min(...allYCoords);
-            const yOffset = minY < 0 ? Math.abs(minY) + 50 : 50; // Offset to make all panels visible
-            
-            this.panels = panelsArray.map((panel, index) => {
+            // Check if local layout is configured
+            if (CONFIG.localLayout && Array.isArray(CONFIG.localLayout) && CONFIG.localLayout.length > 0) {
+                console.log('Using local panel layout from config');
+                // Use local layout directly - panels are already in the correct format
+                this.panels = CONFIG.localLayout.map((panel, index) => {
+                    return {
+                        ...panel,
+                        // Ensure all required fields are present
+                        id: panel.id || panel.inverterSerialNumber || `panel-${index}`,
+                        serialNumber: panel.serialNumber || panel.inverterSerialNumber,
+                        inverterSerialNumber: panel.inverterSerialNumber,
+                        x: panel.x || 0,
+                        y: panel.y || 0,
+                        width: panel.width || 80,
+                        height: panel.height || 120,
+                        planeRotation: panel.planeRotation || 0
+                    };
+                });
+                console.log(`Loaded ${this.panels.length} panels from local layout`);
+            } else {
+                // Fetch from API
+                const url = CONFIG.apiBaseUrl + CONFIG.panelLayoutEndpoint;
+                const response = await fetch(url);
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                
+                const data = await response.json();
+                console.log('Panel layout data received:', data);
+                
+                // Handle the specific JSON format: {result: {panels: [...]}, success: "true"}
+                let panelsArray = [];
+                if (data.result && data.result.panels) {
+                    panelsArray = data.result.panels;
+                } else if (Array.isArray(data)) {
+                    panelsArray = data;
+                } else if (data.panels) {
+                    panelsArray = data.panels;
+                } else if (data.Panels) {
+                    panelsArray = data.Panels;
+                }
+                
+                console.log(`Found ${panelsArray.length} panels`);
+                
+                // Convert the API format to our internal format
+                // API format: {xCoordinate, yCoordinate, planeRotation, inverterSerialNumber}
+                
+                // First, find the minimum y coordinate to calculate offset for all panels
+                const allYCoords = panelsArray.map(p => p.yCoordinate || p.y || 0);
+                const minY = Math.min(...allYCoords);
+                const yOffset = minY < 0 ? Math.abs(minY) + 50 : 50; // Offset to make all panels visible
+                
+                this.panels = panelsArray.map((panel, index) => {
                 // Normalize coordinates (handle negative y values by offsetting)
                 const x = panel.xCoordinate || panel.x || (index % 10) * 120 + 50;
                 const y = (panel.yCoordinate || panel.y || Math.floor(index / 10) * 120 + 50) + yOffset;
@@ -100,7 +122,8 @@ class SolarPanelMonitor {
                 };
             });
             
-            console.log('Processed panels:', this.panels);
+                console.log('Processed panels:', this.panels);
+            }
             
             if (this.panels.length === 0) {
                 console.warn('No panels found in data, creating default panels');
@@ -322,6 +345,7 @@ class SolarPanelMonitor {
         const canvas = document.getElementById('panelCanvas');
         const refreshNowBtn = document.getElementById('refreshNow');
         const refreshIntervalInput = document.getElementById('refreshInterval');
+        const exportLayoutBtn = document.getElementById('exportLayout');
         const tooltip = document.getElementById('tooltip');
 
         // Refresh now button
@@ -334,6 +358,13 @@ class SolarPanelMonitor {
             this.refreshIntervalMinutes = parseInt(e.target.value) || 5;
             this.startAutoRefresh();
         });
+
+        // Export layout button
+        if (exportLayoutBtn) {
+            exportLayoutBtn.addEventListener('click', () => {
+                this.exportPanelLayout();
+            });
+        }
 
         // Mouse events for dragging
         canvas.addEventListener('mousedown', (e) => this.handleMouseDown(e));
@@ -701,6 +732,53 @@ class SolarPanelMonitor {
     updateStatus(message) {
         const status = document.getElementById('status');
         status.textContent = message;
+    }
+
+    exportPanelLayout() {
+        if (!this.panels || this.panels.length === 0) {
+            alert('No panels to export');
+            return;
+        }
+
+        // Create export data with only the essential fields
+        const exportData = this.panels.map(panel => {
+            return {
+                id: panel.id,
+                x: panel.x,
+                y: panel.y,
+                width: panel.width,
+                height: panel.height,
+                planeRotation: panel.planeRotation,
+                inverterSerialNumber: panel.inverterSerialNumber,
+                serialNumber: panel.serialNumber
+            };
+        });
+
+        // Format as JSON string for config.js
+        const jsonString = JSON.stringify(exportData, null, 4);
+        
+        // Create a formatted string for config.js
+        const configString = `    localLayout: ${jsonString}`;
+
+        // Create a blob and download it
+        const blob = new Blob([configString], { type: 'text/plain' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'panel-layout-export.txt';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+
+        // Also copy to clipboard
+        navigator.clipboard.writeText(configString).then(() => {
+            this.updateStatus(`Panel layout exported! Copied to clipboard. (${this.panels.length} panels)`);
+            console.log('Panel layout copied to clipboard:', configString);
+        }).catch(err => {
+            console.error('Failed to copy to clipboard:', err);
+            this.updateStatus(`Panel layout exported to file! (${this.panels.length} panels)`);
+        });
     }
 }
 
