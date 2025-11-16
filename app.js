@@ -66,8 +66,8 @@ class SolarPanelMonitor {
                     // Map to our standard format
                     x: x,
                     y: y,
-                    width: panel.width || 80,
-                    height: panel.height || 80,
+                    width: panel.width || 120,  // Rectangular: wider than tall
+                    height: panel.height || 80, // Rectangular: taller than wide
                     id: panel.inverterSerialNumber || panel.id || panel.ID || `panel-${index}`,
                     serialNumber: panel.inverterSerialNumber || panel.serialNumber || panel.SerialNumber,
                     inverterSerialNumber: panel.inverterSerialNumber,
@@ -82,29 +82,113 @@ class SolarPanelMonitor {
                 this.createDefaultPanels();
             }
             
+            // Resolve any overlapping panels
+            this.resolveOverlaps();
+            
             this.updateStatus(`Panel layout loaded: ${this.panels.length} panels`);
         } catch (error) {
             console.error('Error loading panel layout:', error);
             this.updateStatus(`Error loading panel layout: ${error.message}`);
             // Create default panels if API fails
             this.createDefaultPanels();
+            // Resolve any overlapping panels
+            this.resolveOverlaps();
         }
     }
     
     createDefaultPanels() {
-        // Create some default panels for testing
+        // Create some default panels for testing (rectangular, non-overlapping)
         this.panels = [];
+        const panelWidth = 120;
+        const panelHeight = 80;
+        const spacingX = 20; // Horizontal spacing between panels
+        const spacingY = 20; // Vertical spacing between panels
+        const cols = 4;
+        
         for (let i = 0; i < 12; i++) {
+            const col = i % cols;
+            const row = Math.floor(i / cols);
             this.panels.push({
                 id: `panel-${i}`,
                 serialNumber: `SN-${i}`,
-                x: (i % 4) * 150 + 50,
-                y: Math.floor(i / 4) * 120 + 50,
-                width: 120,
-                height: 100
+                x: 50 + col * (panelWidth + spacingX),
+                y: 50 + row * (panelHeight + spacingY),
+                width: panelWidth,
+                height: panelHeight
             });
         }
         console.log('Created default panels:', this.panels);
+    }
+    
+    // Check if two panels overlap
+    panelsOverlap(panel1, panel2) {
+        return !(panel1.x + panel1.width <= panel2.x ||
+                 panel2.x + panel2.width <= panel1.x ||
+                 panel1.y + panel1.height <= panel2.y ||
+                 panel2.y + panel2.height <= panel1.y);
+    }
+    
+    // Resolve overlapping panels by shifting them
+    resolveOverlaps() {
+        const padding = 10; // Minimum spacing between panels
+        let moved = true;
+        let iterations = 0;
+        const maxIterations = 100; // Prevent infinite loops
+        
+        while (moved && iterations < maxIterations) {
+            moved = false;
+            iterations++;
+            
+            for (let i = 0; i < this.panels.length; i++) {
+                for (let j = i + 1; j < this.panels.length; j++) {
+                    const panel1 = this.panels[i];
+                    const panel2 = this.panels[j];
+                    
+                    if (this.panelsOverlap(panel1, panel2)) {
+                        // Calculate overlap amounts
+                        const overlapX = Math.min(
+                            panel1.x + panel1.width - panel2.x,
+                            panel2.x + panel2.width - panel1.x
+                        );
+                        const overlapY = Math.min(
+                            panel1.y + panel1.height - panel2.y,
+                            panel2.y + panel2.height - panel1.y
+                        );
+                        
+                        // Move panels apart based on which overlap is smaller
+                        if (overlapX < overlapY) {
+                            // Move horizontally
+                            const moveAmount = (overlapX + padding) / 2;
+                            if (panel1.x < panel2.x) {
+                                panel1.x = Math.max(0, panel1.x - moveAmount);
+                                panel2.x = panel2.x + moveAmount;
+                            } else {
+                                panel2.x = Math.max(0, panel2.x - moveAmount);
+                                panel1.x = panel1.x + moveAmount;
+                            }
+                        } else {
+                            // Move vertically
+                            const moveAmount = (overlapY + padding) / 2;
+                            if (panel1.y < panel2.y) {
+                                panel1.y = Math.max(0, panel1.y - moveAmount);
+                                panel2.y = panel2.y + moveAmount;
+                            } else {
+                                panel2.y = Math.max(0, panel2.y - moveAmount);
+                                panel1.y = panel1.y + moveAmount;
+                            }
+                        }
+                        
+                        moved = true;
+                    }
+                }
+            }
+        }
+        
+        if (iterations >= maxIterations) {
+            console.warn('Overlap resolution reached max iterations');
+        } else if (moved) {
+            console.log(`Resolved panel overlaps in ${iterations} iterations`);
+        }
     }
 
     async loadPowerData() {
@@ -253,8 +337,48 @@ class SolarPanelMonitor {
         if (this.isDragging && this.dragPanel) {
             const canvas = document.getElementById('panelCanvas');
             const rect = canvas.getBoundingClientRect();
-            const x = e.clientX - rect.left - this.dragOffset.x;
-            const y = e.clientY - rect.top - this.dragOffset.y;
+            let x = e.clientX - rect.left - this.dragOffset.x;
+            let y = e.clientY - rect.top - this.dragOffset.y;
+
+            // Keep panel within canvas bounds
+            x = Math.max(0, x);
+            y = Math.max(0, y);
+            
+            // Check for overlaps with other panels and adjust position
+            const padding = 5; // Minimum spacing
+            for (const panel of this.panels) {
+                if (panel !== this.dragPanel && this.panelsOverlap({
+                    x: x, y: y, 
+                    width: this.dragPanel.width, 
+                    height: this.dragPanel.height
+                }, panel)) {
+                    // Calculate how to move to avoid overlap
+                    const overlapX = Math.min(
+                        x + this.dragPanel.width - panel.x,
+                        panel.x + panel.width - x
+                    );
+                    const overlapY = Math.min(
+                        y + this.dragPanel.height - panel.y,
+                        panel.y + panel.height - y
+                    );
+                    
+                    if (overlapX < overlapY) {
+                        // Adjust horizontally
+                        if (x < panel.x) {
+                            x = panel.x - this.dragPanel.width - padding;
+                        } else {
+                            x = panel.x + panel.width + padding;
+                        }
+                    } else {
+                        // Adjust vertically
+                        if (y < panel.y) {
+                            y = panel.y - this.dragPanel.height - padding;
+                        } else {
+                            y = panel.y + panel.height + padding;
+                        }
+                    }
+                }
+            }
 
             // Update panel position
             this.dragPanel.x = Math.max(0, x);
@@ -315,17 +439,90 @@ class SolarPanelMonitor {
         
         tooltip.innerHTML = html;
         
-        // Position tooltip
-        tooltip.style.left = `${x + 10}px`;
-        tooltip.style.top = `${y + 10}px`;
+        // Initial position (to the right and below cursor)
+        const offset = 10;
+        let tooltipX = x + offset;
+        let tooltipY = y + offset;
         
-        // Adjust if tooltip goes off screen
+        // Temporarily position tooltip to get accurate dimensions
+        tooltip.style.left = `${tooltipX}px`;
+        tooltip.style.top = `${tooltipY}px`;
+        
+        // Get tooltip dimensions after rendering
         const tooltipRect = tooltip.getBoundingClientRect();
-        if (tooltipRect.right > window.innerWidth) {
-            tooltip.style.left = `${x - tooltipRect.width - 10}px`;
+        const tooltipWidth = tooltipRect.width;
+        const tooltipHeight = tooltipRect.height;
+        
+        // Get viewport dimensions
+        const viewportWidth = window.innerWidth;
+        const viewportHeight = window.innerHeight;
+        
+        // Adjust horizontal position if tooltip goes off screen
+        if (tooltipX + tooltipWidth > viewportWidth) {
+            // Try positioning to the left of cursor
+            tooltipX = x - tooltipWidth - offset;
+            // If still off screen on the left, position at screen edge
+            if (tooltipX < 0) {
+                tooltipX = offset;
+            }
         }
-        if (tooltipRect.bottom > window.innerHeight) {
-            tooltip.style.top = `${y - tooltipRect.height - 10}px`;
+        // Ensure tooltip doesn't go off left edge
+        if (tooltipX < 0) {
+            tooltipX = offset;
+        }
+        
+        // Adjust vertical position if tooltip goes off screen
+        if (tooltipY + tooltipHeight > viewportHeight) {
+            // Try positioning above cursor
+            tooltipY = y - tooltipHeight - offset;
+            // If still off screen at top, position at screen edge
+            if (tooltipY < 0) {
+                tooltipY = offset;
+            }
+        }
+        // Ensure tooltip doesn't go off top edge
+        if (tooltipY < 0) {
+            tooltipY = offset;
+        }
+        
+        // Apply final position
+        tooltip.style.left = `${tooltipX}px`;
+        tooltip.style.top = `${tooltipY}px`;
+        
+        // Final check: verify tooltip is fully on screen and adjust if needed
+        const finalRect = tooltip.getBoundingClientRect();
+        let adjustedX = tooltipX;
+        let adjustedY = tooltipY;
+        
+        // Ensure tooltip doesn't go off right edge
+        if (finalRect.right > viewportWidth) {
+            adjustedX = viewportWidth - tooltipWidth - offset;
+        }
+        // Ensure tooltip doesn't go off left edge
+        if (finalRect.left < 0) {
+            adjustedX = offset;
+        }
+        // Ensure tooltip doesn't go off bottom edge
+        if (finalRect.bottom > viewportHeight) {
+            adjustedY = viewportHeight - tooltipHeight - offset;
+        }
+        // Ensure tooltip doesn't go off top edge
+        if (finalRect.top < 0) {
+            adjustedY = offset;
+        }
+        
+        // If tooltip is larger than viewport, center it
+        if (tooltipWidth > viewportWidth - 2 * offset) {
+            adjustedX = Math.max(offset, (viewportWidth - tooltipWidth) / 2);
+        }
+        if (tooltipHeight > viewportHeight - 2 * offset) {
+            adjustedY = Math.max(offset, (viewportHeight - tooltipHeight) / 2);
+        }
+        
+        // Apply any final adjustments
+        if (adjustedX !== tooltipX || adjustedY !== tooltipY) {
+            tooltip.style.left = `${adjustedX}px`;
+            tooltip.style.top = `${adjustedY}px`;
         }
     }
 
