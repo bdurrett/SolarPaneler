@@ -14,10 +14,9 @@ class SolarPanelMonitor {
 
     async init() {
         this.setupEventListeners();
-        await this.loadPanelLayout();
-        await this.loadPowerData();
+        await this.loadPanelLayout(); // This now renders immediately
+        await this.loadPowerData(); // This updates the render with power data
         this.startAutoRefresh();
-        // render() is called in loadPowerData() after data is loaded
     }
 
     async loadPanelLayout() {
@@ -134,6 +133,13 @@ class SolarPanelMonitor {
             this.resolveOverlaps();
             
             this.updateStatus(`Panel layout loaded: ${this.panels.length} panels`);
+            this.updateSummary(); // Update summary to show total panels count
+            
+            // Render immediately with zero power (will be updated when power data loads)
+            if (this.maxPower === 0) {
+                this.maxPower = 400; // Default for color scaling
+            }
+            this.render();
         } catch (error) {
             console.error('Error loading panel layout:', error);
             this.updateStatus(`Error loading panel layout: ${error.message}`);
@@ -141,6 +147,13 @@ class SolarPanelMonitor {
             this.createDefaultPanels();
             // Resolve any overlapping panels
             this.resolveOverlaps();
+            this.updateSummary(); // Update summary to show total panels count
+            
+            // Render immediately with zero power (will be updated when power data loads)
+            if (this.maxPower === 0) {
+                this.maxPower = 400; // Default for color scaling
+            }
+            this.render();
         }
     }
     
@@ -268,6 +281,9 @@ class SolarPanelMonitor {
             
             // Store power data by serial number or ID
             this.powerData = {};
+            // Reset maxPower to recalculate from new data
+            this.maxPower = 0;
+            
             const devices = Array.isArray(data) ? data : (data.devices || data.DeviceList || data.Devices || []);
             
             console.log(`Found ${devices.length} total devices`);
@@ -314,6 +330,7 @@ class SolarPanelMonitor {
             
             console.log('Power data processed. Max power:', this.maxPower);
             this.updateStatus(`Power data loaded - ${new Date().toLocaleTimeString()}`);
+            this.updateSummary();
             this.render();
         } catch (error) {
             console.error('Error loading power data:', error);
@@ -322,7 +339,48 @@ class SolarPanelMonitor {
             if (this.maxPower === 0) {
                 this.maxPower = 400; // Default for color scaling
             }
+            this.updateSummary();
             this.render();
+        }
+    }
+
+    updateSummary() {
+        let totalPower = 0;
+        let activePanels = 0;
+        
+        // Calculate total power from all panels
+        this.panels.forEach(panel => {
+            const powerInfo = this.powerData[panel.id] || 
+                             this.powerData[panel.serialNumber] || 
+                             this.powerData[panel.inverterSerialNumber] || {};
+            const power = this.getPowerValue(powerInfo);
+            
+            if (power > 0) {
+                totalPower += power;
+                activePanels++;
+            }
+        });
+        
+        // Update summary display
+        const totalPowerElement = document.getElementById('totalPower');
+        const activePanelsElement = document.getElementById('activePanels');
+        const totalPanelsElement = document.getElementById('totalPanels');
+        
+        if (totalPowerElement) {
+            // Format power: show kW if >= 1000W, otherwise show W
+            if (totalPower >= 1000) {
+                totalPowerElement.textContent = `${(totalPower / 1000).toFixed(2)} kW`;
+            } else {
+                totalPowerElement.textContent = `${totalPower.toFixed(1)} W`;
+            }
+        }
+        
+        if (activePanelsElement) {
+            activePanelsElement.textContent = activePanels.toString();
+        }
+        
+        if (totalPanelsElement) {
+            totalPanelsElement.textContent = this.panels.length.toString();
         }
     }
 

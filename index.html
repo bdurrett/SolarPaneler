@@ -23,6 +23,23 @@
         <div id="canvasContainer">
             <svg id="panelCanvas" width="100%" height="100%"></svg>
         </div>
+        <div id="summaryBox" class="summary-box">
+            <h3>Power Summary</h3>
+            <div class="summary-content">
+                <div class="summary-item">
+                    <span class="summary-label">Total Power:</span>
+                    <span class="summary-value" id="totalPower">0 W</span>
+                </div>
+                <div class="summary-item">
+                    <span class="summary-label">Active Panels:</span>
+                    <span class="summary-value" id="activePanels">0</span>
+                </div>
+                <div class="summary-item">
+                    <span class="summary-label">Total Panels:</span>
+                    <span class="summary-value" id="totalPanels">0</span>
+                </div>
+            </div>
+        </div>
         <div id="tooltip" class="tooltip hidden"></div>
     </div>
     <script src="config.js"></script>
