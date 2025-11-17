@@ -8,6 +8,7 @@ class SolarPanelMonitor {
         this.isDragging = false;
         this.dragPanel = null;
         this.dragOffset = { x: 0, y: 0 };
+        this.editPlacementEnabled = false;
         
         this.init();
     }
@@ -404,6 +405,7 @@ class SolarPanelMonitor {
         const refreshNowBtn = document.getElementById('refreshNow');
         const refreshIntervalInput = document.getElementById('refreshInterval');
         const exportLayoutBtn = document.getElementById('exportLayout');
+        const editPlacementCheckbox = document.getElementById('editPlacement');
         const tooltip = document.getElementById('tooltip');
 
         // Refresh now button
@@ -424,6 +426,14 @@ class SolarPanelMonitor {
             });
         }
 
+        // Edit placement checkbox
+        if (editPlacementCheckbox) {
+            editPlacementCheckbox.addEventListener('change', (e) => {
+                this.editPlacementEnabled = e.target.checked;
+                this.updateCursorStyle();
+            });
+        }
+
         // Mouse events for dragging
         canvas.addEventListener('mousedown', (e) => this.handleMouseDown(e));
         canvas.addEventListener('mousemove', (e) => this.handleMouseMove(e));
@@ -439,6 +449,11 @@ class SolarPanelMonitor {
     }
 
     handleMouseDown(e) {
+        // Only allow dragging if edit placement is enabled
+        if (!this.editPlacementEnabled) {
+            return;
+        }
+
         const canvas = document.getElementById('panelCanvas');
         const rect = canvas.getBoundingClientRect();
         const x = e.clientX - rect.left;
@@ -462,6 +477,12 @@ class SolarPanelMonitor {
     }
 
     handleMouseMove(e) {
+        // Stop dragging if edit mode is disabled
+        if (this.isDragging && !this.editPlacementEnabled) {
+            this.handleMouseUp();
+            return;
+        }
+        
         if (this.isDragging && this.dragPanel) {
             const canvas = document.getElementById('panelCanvas');
             const rect = canvas.getBoundingClientRect();
@@ -520,7 +541,12 @@ class SolarPanelMonitor {
             this.isDragging = false;
             this.dragPanel = null;
             const canvas = document.getElementById('panelCanvas');
-            canvas.style.cursor = 'default';
+            // Reset cursor based on edit mode
+            if (this.editPlacementEnabled) {
+                canvas.style.cursor = 'move';
+            } else {
+                canvas.style.cursor = 'default';
+            }
         }
     }
 
@@ -542,8 +568,26 @@ class SolarPanelMonitor {
                              this.powerData[panel.serialNumber] || 
                              this.powerData[panel.inverterSerialNumber] || {};
             this.showTooltip(e.clientX, e.clientY, panel, powerInfo);
+            // Update cursor based on edit mode
+            if (this.editPlacementEnabled) {
+                canvas.style.cursor = 'move';
+            } else {
+                canvas.style.cursor = 'default';
+            }
         } else {
             tooltip.classList.add('hidden');
+            canvas.style.cursor = 'default';
+        }
+    }
+
+    updateCursorStyle() {
+        const canvas = document.getElementById('panelCanvas');
+        if (!canvas) return;
+        
+        // Update cursor style based on edit mode
+        // The cursor will be updated dynamically when hovering over panels
+        if (!this.editPlacementEnabled) {
+            canvas.style.cursor = 'default';
         }
     }
 

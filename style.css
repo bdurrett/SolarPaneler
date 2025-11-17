@@ -46,6 +46,20 @@ h1 {
     gap: 0.5rem;
 }
 
+.checkbox-label {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    cursor: pointer;
+    user-select: none;
+}
+
+.checkbox-label input[type="checkbox"] {
+    cursor: pointer;
+    width: 18px;
+    height: 18px;
+}
+
 .controls input[type="number"] {
     background: #3a3a3a;
     border: 1px solid #555;
@@ -98,7 +112,6 @@ button:active {
 }
 
 .panel {
-    cursor: move;
     stroke: #333;
     stroke-width: 1;
     transition: stroke-width 0.2s;
@@ -155,7 +168,7 @@ button:active {
 
 .summary-box {
     position: fixed;
-    top: 80px;
+    bottom: 20px;
     right: 20px;
     background: rgba(42, 42, 42, 0.95);
     border: 1px solid #4ade80;
