@@ -455,15 +455,54 @@ class SolarPanelMonitor {
         }
 
         const canvas = document.getElementById('panelCanvas');
-        const rect = canvas.getBoundingClientRect();
-        const x = e.clientX - rect.left;
-        const y = e.clientY - rect.top;
-
-        // Find which panel was clicked
-        const panel = this.panels.find(p => {
-            return x >= p.x && x <= p.x + p.width &&
-                   y >= p.y && y <= p.y + p.height;
-        });
+        
+        // Use SVG element-based detection for accurate hit testing
+        const elementAtPoint = document.elementFromPoint(e.clientX, e.clientY);
+        let panelElement = null;
+        if (elementAtPoint) {
+            if (elementAtPoint.classList && elementAtPoint.classList.contains('panel')) {
+                panelElement = elementAtPoint;
+            } else if (elementAtPoint.parentElement && 
+                      elementAtPoint.parentElement.querySelector && 
+                      elementAtPoint.parentElement.querySelector('.panel')) {
+                panelElement = elementAtPoint.parentElement.querySelector('.panel');
+            }
+        }
+        
+        // Find panel by element ID
+        let panel = null;
+        if (panelElement) {
+            const panelId = panelElement.getAttribute('data-panel-id');
+            panel = this.panels.find(p => 
+                (p.id === panelId) || 
+                (p.serialNumber === panelId) || 
+                (p.inverterSerialNumber === panelId)
+            );
+        }
+        
+        // Fallback to coordinate-based detection
+        if (!panel) {
+            const rect = canvas.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const y = e.clientY - rect.top;
+            
+            panel = this.panels.find(p => {
+                // Account for rotation in hit detection
+                if (p.planeRotation && p.planeRotation !== 0 && p.planeRotation !== 180 && 
+                    p.planeRotation !== 90 && p.planeRotation !== 270) {
+                    const rad = (p.planeRotation * Math.PI) / 180;
+                    const cos = Math.abs(Math.cos(rad));
+                    const sin = Math.abs(Math.sin(rad));
+                    const rotatedWidth = p.width * cos + p.height * sin;
+                    const rotatedHeight = p.width * sin + p.height * cos;
+                    return x >= p.x && x <= p.x + rotatedWidth &&
+                           y >= p.y && y <= p.y + rotatedHeight;
+                } else {
+                    return x >= p.x && x <= p.x + p.width &&
+                           y >= p.y && y <= p.y + p.height;
+                }
+            });
+        }
 
         if (panel) {
             this.isDragging = true;
@@ -559,15 +598,90 @@ class SolarPanelMonitor {
     updateTooltip(e) {
         const canvas = document.getElementById('panelCanvas');
         const tooltip = document.getElementById('tooltip');
-        const rect = canvas.getBoundingClientRect();
-        const x = e.clientX - rect.left;
-        const y = e.clientY - rect.top;
-
-        // Find panel under cursor
-        const panel = this.panels.find(p => {
-            return x >= p.x && x <= p.x + p.width &&
-                   y >= p.y && y <= p.y + p.height;
-        });
+        
+        // Find the element at the mouse position
+        const elementAtPoint = document.elementFromPoint(e.clientX, e.clientY);
+        
+        // Traverse up the DOM tree to find a panel element
+        let panelElement = null;
+        let currentElement = elementAtPoint;
+        
+        while (currentElement && currentElement !== canvas && !panelElement) {
+            // Check if current element is a panel rect
+            if (currentElement.classList && currentElement.classList.contains('panel')) {
+                panelElement = currentElement;
+                break;
+            }
+            // Check if current element contains a panel rect
+            if (currentElement.querySelector) {
+                const panelRect = currentElement.querySelector('.panel');
+                if (panelRect) {
+                    panelElement = panelRect;
+                    break;
+                }
+            }
+            // Move up to parent
+            currentElement = currentElement.parentElement || currentElement.parentNode;
+        }
+        
+        // Find panel by element ID
+        let panel = null;
+        if (panelElement) {
+            const panelId = panelElement.getAttribute('data-panel-id');
+            if (panelId) {
+                panel = this.panels.find(p => 
+                    (p.id === panelId) || 
+                    (p.serialNumber === panelId) || 
+                    (p.inverterSerialNumber === panelId)
+                );
+            }
+        }
+        
+        // Fallback: use coordinate-based detection with proper SVG coordinate transformation
+        if (!panel) {
+            const rect = canvas.getBoundingClientRect();
+            const svgPoint = canvas.createSVGPoint();
+            svgPoint.x = e.clientX;
+            svgPoint.y = e.clientY;
+            
+            // Transform screen coordinates to SVG coordinates
+            const ctm = canvas.getScreenCTM();
+            if (ctm) {
+                const inverseCTM = ctm.inverse();
+                const transformedPoint = svgPoint.matrixTransform(inverseCTM);
+                const x = transformedPoint.x;
+                const y = transformedPoint.y;
+                
+                panel = this.panels.find(p => {
+                    // Check if point is within panel bounds (accounting for rotation)
+                    // For rotated panels, we need to check the actual rotated rectangle
+                    if (p.planeRotation && p.planeRotation !== 0 && p.planeRotation !== 180 && 
+                        p.planeRotation !== 90 && p.planeRotation !== 270) {
+                        // For arbitrary rotations, check against rotated bounding box
+                        const rad = (p.planeRotation * Math.PI) / 180;
+                        const cos = Math.abs(Math.cos(rad));
+                        const sin = Math.abs(Math.sin(rad));
+                        const rotatedWidth = p.width * cos + p.height * sin;
+                        const rotatedHeight = p.width * sin + p.height * cos;
+                        return x >= p.x && x <= p.x + rotatedWidth &&
+                               y >= p.y && y <= p.y + rotatedHeight;
+                    } else {
+                        // For 0°, 90°, 180°, 270° - dimensions are already swapped if needed
+                        return x >= p.x && x <= p.x + p.width &&
+                               y >= p.y && y <= p.y + p.height;
+                    }
+                });
+            } else {
+                // Fallback to simple coordinate calculation if CTM not available
+                const x = e.clientX - rect.left;
+                const y = e.clientY - rect.top;
+                
+                panel = this.panels.find(p => {
+                    return x >= p.x && x <= p.x + p.width &&
+                           y >= p.y && y <= p.y + p.height;
+                });
+            }
+        }
 
         if (panel) {
             const powerInfo = this.powerData[panel.id] || 
@@ -707,11 +821,21 @@ class SolarPanelMonitor {
     getColorForPower(power) {
         if (this.maxPower === 0) return '#000000'; // Black for no power
         
-        const ratio = Math.min(power / this.maxPower, 1);
+        // If power is 0, return black
+        if (power === 0) return '#000000';
         
-        // Interpolate from black (0,0,0) to green (0,255,0)
+        // Calculate ratio, but ensure any non-zero power has at least some visible color
+        // Minimum green value of 30 (out of 255) for any panel with power > 0
+        const ratio = Math.min(power / this.maxPower, 1);
+        const minGreen = 30; // Minimum green value for visibility
+        const maxGreen = 255;
+        const greenRange = maxGreen - minGreen;
+        
+        // Scale from minGreen to maxGreen based on ratio
+        const g = Math.floor(minGreen + (greenRange * ratio));
+        
+        // Interpolate from dark green to bright green
         const r = Math.floor(0);
-        const g = Math.floor(255 * ratio);
         const b = Math.floor(0);
         
         return `rgb(${r}, ${g}, ${b})`;
