@@ -2,7 +2,7 @@
 Render PV6 Solar Panel in your browser, automatically finding the placement of your panels and
 showing power production and panel details for each.
 
-Detailed post at [Self Hosting PV6 Monitoring (software included!)](https://brett.durrett.net/)
+Detailed post at [Self Hosting PV6 Monitoring (software included!)](https://brett.durrett.net/self-hosting-pv6-monitoring-software-included/)
 
 ## Setup
 
