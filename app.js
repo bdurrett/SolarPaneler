@@ -76,10 +76,15 @@ class SolarPanelMonitor {
                 const allYCoords = panelsArray.map(p => p.yCoordinate || p.y || 0);
                 const minY = Math.min(...allYCoords);
                 const yOffset = minY < 0 ? Math.abs(minY) + 50 : 50; // Offset to make all panels visible
+
+                // Next, find minimum X to calculate an offset for all PV6-based coordinates
+                const allXCoords = panelsArray.map(p => p.xCoordinate || p.x || 0);
+                const minX = Math.min(...allXCoords);
+                const xOffset = minX < 0 ? Math.abs(minX) + 50 : 50; // Same idea as yOffset
                 
                 this.panels = panelsArray.map((panel, index) => {
                 // Normalize coordinates (handle negative y values by offsetting)
-                const x = panel.xCoordinate || panel.x || (index % 10) * 120 + 50;
+                const x = (panel.xCoordinate || panel.x || Math.floor(index / 10) * 120 + 50) + xOffset;
                 const y = (panel.yCoordinate || panel.y || Math.floor(index / 10) * 120 + 50) + yOffset;
                 
                 // Get rotation angle (normalize to 0-360)
