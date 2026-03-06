@@ -4,267 +4,262 @@ class SolarPanelMonitor {
         this.powerData = {};
         this.maxPower = 0;
         this.refreshInterval = null;
-        this.refreshIntervalMinutes = 5;
+        this.refreshIntervalMinutes = parseInt(localStorage.getItem('refreshIntervalMinutes')) || 5;
         this.isDragging = false;
         this.dragPanel = null;
         this.dragOffset = { x: 0, y: 0 };
+        this.dragStartPosition = null;
         this.editPlacementEnabled = false;
-        
+        this.debug = false;
+
+        // Zoom & pan
+        this.zoom = 1;
+        this.panX = 0;
+        this.panY = 0;
+        this.isPanning = false;
+        this.panStartScreen = { x: 0, y: 0 };
+        this.panStartValues = { x: 0, y: 0 };
+
+        // Base canvas dimensions (SVG user-space extent)
+        this.baseCanvasWidth = 800;
+        this.baseCanvasHeight = 600;
+
+        // Grid snap in SVG units (0 to disable, configurable via CONFIG.gridSize)
+        this.gridSize = (typeof CONFIG !== 'undefined' && CONFIG.gridSize != null) ? CONFIG.gridSize : 10;
+
         this.init();
+    }
+
+    log(...args) {
+        if (this.debug) console.log(...args);
     }
 
     async init() {
         this.setupEventListeners();
-        await this.loadPanelLayout(); // This now renders immediately
-        await this.loadPowerData(); // This updates the render with power data
+        const input = document.getElementById('refreshInterval');
+        if (input) input.value = this.refreshIntervalMinutes;
+        await this.loadPanelLayout();
+        await this.loadPowerData();
         this.startAutoRefresh();
+    }
+
+    // Deduplicated helper: look up power data for a panel
+    getPanelPowerInfo(panel) {
+        return this.powerData[panel.id] ||
+               this.powerData[panel.serialNumber] ||
+               this.powerData[panel.inverterSerialNumber] || {};
+    }
+
+    // Convert screen coords to SVG user-space coords (respects viewBox / zoom / pan)
+    screenToSVG(screenX, screenY) {
+        const canvas = document.getElementById('panelCanvas');
+        const svgPoint = canvas.createSVGPoint();
+        svgPoint.x = screenX;
+        svgPoint.y = screenY;
+        const ctm = canvas.getScreenCTM();
+        if (ctm) return svgPoint.matrixTransform(ctm.inverse());
+        const rect = canvas.getBoundingClientRect();
+        return { x: screenX - rect.left, y: screenY - rect.top };
+    }
+
+    snapToGrid(value) {
+        if (!this.gridSize) return value;
+        return Math.round(value / this.gridSize) * this.gridSize;
+    }
+
+    // Apply current zoom/pan to the SVG viewBox
+    updateViewBox() {
+        const canvas = document.getElementById('panelCanvas');
+        if (!canvas || !this.baseCanvasWidth) return;
+        const w = this.baseCanvasWidth / this.zoom;
+        const h = this.baseCanvasHeight / this.zoom;
+        canvas.setAttribute('viewBox', `${this.panX} ${this.panY} ${w} ${h}`);
+    }
+
+    // Fit all panels into view
+    fitAllPanels() {
+        if (this.panels.length === 0 || !this.baseCanvasWidth) return;
+
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+        this.panels.forEach(p => {
+            minX = Math.min(minX, p.x);
+            minY = Math.min(minY, p.y);
+            maxX = Math.max(maxX, p.x + p.width);
+            maxY = Math.max(maxY, p.y + p.height);
+        });
+
+        const pad = 40;
+        const contentW = (maxX - minX) + pad * 2;
+        const contentH = (maxY - minY) + pad * 2;
+
+        this.panX = minX - pad;
+        this.panY = minY - pad;
+        // Pick zoom so all content fits; use both dimensions and take the smaller
+        const zoomByWidth = this.baseCanvasWidth / contentW;
+        const zoomByHeight = this.baseCanvasHeight / contentH;
+        this.zoom = Math.min(zoomByWidth, zoomByHeight, 3);
+
+        this.updateViewBox();
     }
 
     async loadPanelLayout() {
         try {
             console.log('Loading panel layout...');
-            
-            // Check if local layout is configured
+
             if (CONFIG.localLayout && Array.isArray(CONFIG.localLayout) && CONFIG.localLayout.length > 0) {
                 console.log('Using local panel layout from config');
-                // Use local layout directly - panels are already in the correct format
-                this.panels = CONFIG.localLayout.map((panel, index) => {
-                    return {
-                        ...panel,
-                        // Ensure all required fields are present
-                        id: panel.id || panel.inverterSerialNumber || `panel-${index}`,
-                        serialNumber: panel.serialNumber || panel.inverterSerialNumber,
-                        inverterSerialNumber: panel.inverterSerialNumber,
-                        x: panel.x || 0,
-                        y: panel.y || 0,
-                        width: panel.width || 80,
-                        height: panel.height || 120,
-                        planeRotation: panel.planeRotation || 0
-                    };
-                });
+                this.panels = CONFIG.localLayout.map((panel, index) => ({
+                    ...panel,
+                    id: panel.id || panel.inverterSerialNumber || `panel-${index}`,
+                    serialNumber: panel.serialNumber || panel.inverterSerialNumber,
+                    inverterSerialNumber: panel.inverterSerialNumber,
+                    x: panel.x || 0,
+                    y: panel.y || 0,
+                    width: panel.width || 80,
+                    height: panel.height || 120,
+                    planeRotation: panel.planeRotation || 0
+                }));
                 console.log(`Loaded ${this.panels.length} panels from local layout`);
             } else {
-                // Fetch from API
                 const url = CONFIG.apiBaseUrl + CONFIG.panelLayoutEndpoint;
                 const response = await fetch(url);
-                
-                if (!response.ok) {
-                    throw new Error(`HTTP error! status: ${response.status}`);
-                }
-                
+                if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+
                 const data = await response.json();
-                console.log('Panel layout data received:', data);
-                
-                // Handle the specific JSON format: {result: {panels: [...]}, success: "true"}
+                console.log('Panel layout data received');
+
                 let panelsArray = [];
-                if (data.result && data.result.panels) {
-                    panelsArray = data.result.panels;
-                } else if (Array.isArray(data)) {
-                    panelsArray = data;
-                } else if (data.panels) {
-                    panelsArray = data.panels;
-                } else if (data.Panels) {
-                    panelsArray = data.Panels;
-                }
-                
+                if (data.result && data.result.panels) panelsArray = data.result.panels;
+                else if (Array.isArray(data)) panelsArray = data;
+                else if (data.panels) panelsArray = data.panels;
+                else if (data.Panels) panelsArray = data.Panels;
+
                 console.log(`Found ${panelsArray.length} panels`);
-                
-                // Convert the API format to our internal format
-                // API format: {xCoordinate, yCoordinate, planeRotation, inverterSerialNumber}
-                
-                // First, find the minimum y coordinate to calculate offset for all panels
+
                 const allYCoords = panelsArray.map(p => p.yCoordinate || p.y || 0);
                 const minY = Math.min(...allYCoords);
-                const yOffset = minY < 0 ? Math.abs(minY) + 50 : 50; // Offset to make all panels visible
-                
+                const yOffset = minY < 0 ? Math.abs(minY) + 50 : 50;
+
                 this.panels = panelsArray.map((panel, index) => {
-                // Normalize coordinates (handle negative y values by offsetting)
-                const x = panel.xCoordinate || panel.x || (index % 10) * 120 + 50;
-                const y = (panel.yCoordinate || panel.y || Math.floor(index / 10) * 120 + 50) + yOffset;
-                
-                // Get rotation angle (normalize to 0-360)
-                const rotation = (panel.planeRotation || 0) % 360;
-                
-                // Base dimensions for a panel (portrait: taller than wide)
-                const baseWidth = panel.width || 80;   // Narrow dimension
-                const baseHeight = panel.height || 120; // Tall dimension
-                
-                // Determine actual width/height based on rotation
-                // 0° = portrait (taller than wide), 90° = landscape (wider than tall)
-                let width, height;
-                if (rotation === 0 || rotation === 180) {
-                    // Portrait: taller than wide
-                    width = baseWidth;
-                    height = baseHeight;
-                } else if (rotation === 90 || rotation === 270) {
-                    // Landscape: wider than tall
-                    width = baseHeight;
-                    height = baseWidth;
-                } else {
-                    // For other angles, use the larger dimension for both to ensure visibility
-                    const maxDim = Math.max(baseWidth, baseHeight);
-                    width = maxDim;
-                    height = maxDim;
-                }
-                
-                return {
-                    // Keep original data
-                    ...panel,
-                    // Map to our standard format
-                    x: x,
-                    y: y,
-                    width: width,
-                    height: height,
-                    id: panel.inverterSerialNumber || panel.id || panel.ID || `panel-${index}`,
-                    serialNumber: panel.inverterSerialNumber || panel.serialNumber || panel.SerialNumber,
-                    inverterSerialNumber: panel.inverterSerialNumber,
-                    planeRotation: rotation
-                };
-            });
-            
-                console.log('Processed panels:', this.panels);
+                    const x = panel.xCoordinate || panel.x || (index % 10) * 120 + 50;
+                    const y = (panel.yCoordinate || panel.y || Math.floor(index / 10) * 120 + 50) + yOffset;
+                    const rotation = (panel.planeRotation || 0) % 360;
+                    const baseWidth = panel.width || 80;
+                    const baseHeight = panel.height || 120;
+
+                    let width, height;
+                    if (rotation === 0 || rotation === 180) {
+                        width = baseWidth; height = baseHeight;
+                    } else if (rotation === 90 || rotation === 270) {
+                        width = baseHeight; height = baseWidth;
+                    } else {
+                        const maxDim = Math.max(baseWidth, baseHeight);
+                        width = maxDim; height = maxDim;
+                    }
+
+                    return {
+                        ...panel,
+                        x, y, width, height,
+                        id: panel.inverterSerialNumber || panel.id || panel.ID || `panel-${index}`,
+                        serialNumber: panel.inverterSerialNumber || panel.serialNumber || panel.SerialNumber,
+                        inverterSerialNumber: panel.inverterSerialNumber,
+                        planeRotation: rotation
+                    };
+                });
+
+                console.log('Processed panels:', this.panels.length);
             }
-            
+
             if (this.panels.length === 0) {
-                console.warn('No panels found in data, creating default panels');
+                console.warn('No panels found, creating default panels');
                 this.createDefaultPanels();
             }
-            
-            // Resolve any overlapping panels
+
             this.resolveOverlaps();
-            
             this.updateStatus(`Panel layout loaded: ${this.panels.length} panels`);
-            this.updateSummary(); // Update summary to show total panels count
-            
-            // Render immediately with zero power (will be updated when power data loads)
-            if (this.maxPower === 0) {
-                this.maxPower = 400; // Default for color scaling
-            }
+            this.updateSummary();
+            if (this.maxPower === 0) this.maxPower = 400;
             this.render();
+            this.fitAllPanels();
         } catch (error) {
             console.error('Error loading panel layout:', error);
             this.updateStatus(`Error loading panel layout: ${error.message}`);
-            // Create default panels if API fails
             this.createDefaultPanels();
-            // Resolve any overlapping panels
             this.resolveOverlaps();
-            this.updateSummary(); // Update summary to show total panels count
-            
-            // Render immediately with zero power (will be updated when power data loads)
-            if (this.maxPower === 0) {
-                this.maxPower = 400; // Default for color scaling
-            }
+            this.updateSummary();
+            if (this.maxPower === 0) this.maxPower = 400;
             this.render();
+            this.fitAllPanels();
         }
     }
-    
+
     createDefaultPanels() {
-        // Create some default panels for testing (rectangular, non-overlapping)
         this.panels = [];
-        const baseWidth = 80;   // Narrow dimension (for portrait)
-        const baseHeight = 120; // Tall dimension (for portrait)
-        const spacingX = 20; // Horizontal spacing between panels
-        const spacingY = 20; // Vertical spacing between panels
+        const baseWidth = 80;
+        const baseHeight = 120;
+        const spacingX = 20;
+        const spacingY = 20;
         const cols = 4;
-        
+
         for (let i = 0; i < 12; i++) {
             const col = i % cols;
             const row = Math.floor(i / cols);
-            // Alternate between 0° (portrait) and 90° (landscape) for variety
             const rotation = (i % 2 === 0) ? 0 : 90;
-            
-            // Determine dimensions based on rotation
             let width, height;
             if (rotation === 0 || rotation === 180) {
-                width = baseWidth;
-                height = baseHeight;
+                width = baseWidth; height = baseHeight;
             } else {
-                width = baseHeight;
-                height = baseWidth;
+                width = baseHeight; height = baseWidth;
             }
-            
             this.panels.push({
                 id: `panel-${i}`,
                 serialNumber: `SN-${i}`,
                 x: 50 + col * (Math.max(width, baseHeight) + spacingX),
                 y: 50 + row * (Math.max(height, baseHeight) + spacingY),
-                width: width,
-                height: height,
+                width, height,
                 planeRotation: rotation
             });
         }
-        console.log('Created default panels:', this.panels);
     }
-    
-    // Check if two panels overlap
+
     panelsOverlap(panel1, panel2) {
         return !(panel1.x + panel1.width <= panel2.x ||
                  panel2.x + panel2.width <= panel1.x ||
                  panel1.y + panel1.height <= panel2.y ||
                  panel2.y + panel2.height <= panel1.y);
     }
-    
-    // Resolve overlapping panels by shifting them
+
     resolveOverlaps() {
-        const padding = 10; // Minimum spacing between panels
+        const padding = 10;
         let moved = true;
         let iterations = 0;
-        const maxIterations = 100; // Prevent infinite loops
-        
+        const maxIterations = 100;
+
         while (moved && iterations < maxIterations) {
             moved = false;
             iterations++;
-            
             for (let i = 0; i < this.panels.length; i++) {
                 for (let j = i + 1; j < this.panels.length; j++) {
-                    const panel1 = this.panels[i];
-                    const panel2 = this.panels[j];
-                    
-                    if (this.panelsOverlap(panel1, panel2)) {
-                        // Calculate overlap amounts
-                        const overlapX = Math.min(
-                            panel1.x + panel1.width - panel2.x,
-                            panel2.x + panel2.width - panel1.x
-                        );
-                        const overlapY = Math.min(
-                            panel1.y + panel1.height - panel2.y,
-                            panel2.y + panel2.height - panel1.y
-                        );
-                        
-                        // Move panels apart based on which overlap is smaller
-                        if (overlapX < overlapY) {
-                            // Move horizontally
-                            const moveAmount = (overlapX + padding) / 2;
-                            if (panel1.x < panel2.x) {
-                                panel1.x = Math.max(0, panel1.x - moveAmount);
-                                panel2.x = panel2.x + moveAmount;
-                            } else {
-                                panel2.x = Math.max(0, panel2.x - moveAmount);
-                                panel1.x = panel1.x + moveAmount;
-                            }
+                    const p1 = this.panels[i];
+                    const p2 = this.panels[j];
+                    if (this.panelsOverlap(p1, p2)) {
+                        const ox = Math.min(p1.x + p1.width - p2.x, p2.x + p2.width - p1.x);
+                        const oy = Math.min(p1.y + p1.height - p2.y, p2.y + p2.height - p1.y);
+                        const move = (ox < oy ? ox : oy + 0) / 2 + padding / 2;
+                        if (ox < oy) {
+                            if (p1.x < p2.x) { p1.x = Math.max(0, p1.x - (ox + padding) / 2); p2.x += (ox + padding) / 2; }
+                            else { p2.x = Math.max(0, p2.x - (ox + padding) / 2); p1.x += (ox + padding) / 2; }
                         } else {
-                            // Move vertically
-                            const moveAmount = (overlapY + padding) / 2;
-                            if (panel1.y < panel2.y) {
-                                panel1.y = Math.max(0, panel1.y - moveAmount);
-                                panel2.y = panel2.y + moveAmount;
-                            } else {
-                                panel2.y = Math.max(0, panel2.y - moveAmount);
-                                panel1.y = panel1.y + moveAmount;
-                            }
+                            if (p1.y < p2.y) { p1.y = Math.max(0, p1.y - (oy + padding) / 2); p2.y += (oy + padding) / 2; }
+                            else { p2.y = Math.max(0, p2.y - (oy + padding) / 2); p1.y += (oy + padding) / 2; }
                         }
-                        
                         moved = true;
                     }
                 }
             }
         }
-        
-        if (iterations >= maxIterations) {
-            console.warn('Overlap resolution reached max iterations');
-        } else if (moved) {
-            console.log(`Resolved panel overlaps in ${iterations} iterations`);
-        }
+
+        if (iterations >= maxIterations) console.warn('Overlap resolution reached max iterations');
     }
 
     async loadPowerData() {
@@ -272,76 +267,47 @@ class SolarPanelMonitor {
             console.log('Loading power data...');
             const url = CONFIG.apiBaseUrl + CONFIG.powerDataEndpoint;
             const response = await fetch(url);
-            
-            if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
-            }
-            
+            if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+
             const data = await response.json();
-            console.log('Power data received:', data);
-            
-            // Store power data by serial number or ID
             this.powerData = {};
-            // Reset maxPower to recalculate from new data
             this.maxPower = 0;
-            
+
             const devices = Array.isArray(data) ? data : (data.devices || data.DeviceList || data.Devices || []);
-            
             console.log(`Found ${devices.length} total devices`);
-            
-            // Filter for inverters only (solar panels)
-            const inverters = devices.filter(device => {
-                return device.DEVICE_TYPE === "Inverter" || 
-                       device.TYPE === "SOLARBRIDGE" ||
-                       (device.DESCR && device.DESCR.includes("Inverter"));
-            });
-            
-            console.log(`Found ${inverters.length} inverters (solar panels)`);
-            
+
+            const inverters = devices.filter(device =>
+                device.DEVICE_TYPE === "Inverter" ||
+                device.TYPE === "SOLARBRIDGE" ||
+                (device.DESCR && device.DESCR.includes("Inverter"))
+            );
+            console.log(`Found ${inverters.length} inverters`);
+
             inverters.forEach(device => {
-                // Use SERIAL field (uppercase) to match with panel inverterSerialNumber
-                const serial = device.SERIAL || device.serialNumber || device.SerialNumber || 
-                              device.inverterSerialNumber || device.InverterSerialNumber ||
-                              device.id || device.ID;
-                
+                const serial = device.SERIAL || device.serialNumber || device.SerialNumber ||
+                               device.inverterSerialNumber || device.InverterSerialNumber ||
+                               device.id || device.ID;
                 if (serial) {
-                    // Store by serial number
                     this.powerData[serial] = device;
-                    
-                    // Also store by lowercase version if different
-                    if (serial !== serial.toLowerCase()) {
-                        this.powerData[serial.toLowerCase()] = device;
-                    }
-                    
-                    // Track maximum power for color scaling
+                    if (serial !== serial.toLowerCase()) this.powerData[serial.toLowerCase()] = device;
                     const power = this.getPowerValue(device);
-                    if (power > this.maxPower) {
-                        this.maxPower = power;
-                    }
-                    
-                    console.log(`Stored power data for ${serial}: ${power}W`);
+                    if (power > this.maxPower) this.maxPower = power;
+                    this.log(`Stored power data for ${serial}: ${power}W`);
                 }
             });
-            
-            // If no max power found, set a default for color scaling
+
             if (this.maxPower === 0) {
-                this.maxPower = 400; // Default max power for color scaling
-                console.log('No power data found, using default max power for color scaling');
+                this.maxPower = 400;
+                console.log('No power data found, using default max power');
             }
-            
-            console.log('Power data processed. Max power:', this.maxPower);
-            console.log('Power data stored, keys:', Object.keys(this.powerData));
-            console.log('About to render, powerData reference check:', this.powerData !== null);
+
             this.updateStatus(`Power data loaded - ${new Date().toLocaleTimeString()}`);
             this.updateSummary();
             this.render();
         } catch (error) {
             console.error('Error loading power data:', error);
             this.updateStatus(`Error loading power data: ${error.message}`);
-            // Still render with default/zero power
-            if (this.maxPower === 0) {
-                this.maxPower = 400; // Default for color scaling
-            }
+            if (this.maxPower === 0) this.maxPower = 400;
             this.updateSummary();
             this.render();
         }
@@ -350,127 +316,58 @@ class SolarPanelMonitor {
     updateSummary() {
         let totalPower = 0;
         let activePanels = 0;
-        
-        // Calculate total power from all panels
+
         this.panels.forEach(panel => {
-            const powerInfo = this.powerData[panel.id] || 
-                             this.powerData[panel.serialNumber] || 
-                             this.powerData[panel.inverterSerialNumber] || {};
-            const power = this.getPowerValue(powerInfo);
-            
+            const power = this.getPowerValue(this.getPanelPowerInfo(panel));
             if (power > 0) {
                 totalPower += power;
                 activePanels++;
             }
         });
-        
-        // Update summary display
-        const totalPowerElement = document.getElementById('totalPower');
-        const activePanelsElement = document.getElementById('activePanels');
-        const totalPanelsElement = document.getElementById('totalPanels');
-        
-        if (totalPowerElement) {
-            // Format power: show kW if >= 1000W, otherwise show W
-            if (totalPower >= 1000) {
-                totalPowerElement.textContent = `${(totalPower / 1000).toFixed(2)} kW`;
-            } else {
-                totalPowerElement.textContent = `${totalPower.toFixed(1)} W`;
-            }
+
+        const avgPower = activePanels > 0 ? totalPower / activePanels : 0;
+
+        const totalPowerEl = document.getElementById('totalPower');
+        const activePanelsEl = document.getElementById('activePanels');
+        const totalPanelsEl = document.getElementById('totalPanels');
+        const avgPowerEl = document.getElementById('avgPower');
+        const lastUpdatedEl = document.getElementById('lastUpdated');
+
+        if (totalPowerEl) {
+            totalPowerEl.textContent = totalPower >= 1000
+                ? `${(totalPower / 1000).toFixed(2)} kW`
+                : `${totalPower.toFixed(1)} W`;
         }
-        
-        if (activePanelsElement) {
-            activePanelsElement.textContent = activePanels.toString();
-        }
-        
-        if (totalPanelsElement) {
-            totalPanelsElement.textContent = this.panels.length.toString();
-        }
+        if (activePanelsEl) activePanelsEl.textContent = activePanels.toString();
+        if (totalPanelsEl) totalPanelsEl.textContent = this.panels.length.toString();
+        if (avgPowerEl) avgPowerEl.textContent = activePanels > 0 ? `${avgPower.toFixed(1)} W` : '—';
+        if (lastUpdatedEl) lastUpdatedEl.textContent = new Date().toLocaleTimeString();
+
+        this.showNightModeIndicator(this.panels.length > 0 && totalPower === 0);
+    }
+
+    showNightModeIndicator(show) {
+        const banner = document.getElementById('nightModeBanner');
+        if (banner) banner.classList.toggle('hidden', !show);
     }
 
     getPowerValue(device) {
-        console.log('getPowerValue called with device:', device);
-        console.log('Device type:', typeof device, 'Is object:', device && typeof device === 'object');
-        
-        if (!device || typeof device !== 'object') {
-            console.log('getPowerValue: Invalid device object, returning 0');
-            return 0;
-        }
-        
-        // Try various possible power field names
-        // p_3phsum_kw is in kilowatts, so convert to watts by multiplying by 1000
-        console.log('Checking p_3phsum_kw:', {
-            exists: 'p_3phsum_kw' in device,
-            value: device.p_3phsum_kw,
-            type: typeof device.p_3phsum_kw,
-            isUndefined: device.p_3phsum_kw === undefined,
-            isNull: device.p_3phsum_kw === null,
-            isEmpty: device.p_3phsum_kw === ''
-        });
-        
+        if (!device || typeof device !== 'object') return 0;
+
         if (device.p_3phsum_kw !== undefined && device.p_3phsum_kw !== null && device.p_3phsum_kw !== '') {
-            const value = parseFloat(device.p_3phsum_kw);
-            console.log('p_3phsum_kw parsed:', {
-                raw: device.p_3phsum_kw,
-                parsed: value,
-                isNaN: isNaN(value),
-                result: !isNaN(value) ? value * 1000 : 'NaN'
-            });
-            if (!isNaN(value)) {
-                const result = value * 1000;
-                console.log('getPowerValue returning (from p_3phsum_kw):', result, 'W');
-                return result; // Convert kW to W
-            }
+            const value = parseFloat(String(device.p_3phsum_kw));
+            if (!isNaN(value)) return value * 1000;
         }
-        
-        console.log('Checking p_3phsum_kW:', {
-            exists: 'p_3phsum_kW' in device,
-            value: device.p_3phsum_kW,
-            type: typeof device.p_3phsum_kW
-        });
-        
         if (device.p_3phsum_kW !== undefined && device.p_3phsum_kW !== null && device.p_3phsum_kW !== '') {
-            const value = parseFloat(device.p_3phsum_kW);
-            console.log('p_3phsum_kW parsed:', {
-                raw: device.p_3phsum_kW,
-                parsed: value,
-                isNaN: isNaN(value),
-                result: !isNaN(value) ? value * 1000 : 'NaN'
-            });
-            if (!isNaN(value)) {
-                const result = value * 1000;
-                console.log('getPowerValue returning (from p_3phsum_kW):', result, 'W');
-                return result; // Convert kW to W
-            }
+            const value = parseFloat(String(device.p_3phsum_kW));
+            if (!isNaN(value)) return value * 1000;
         }
-        
-        // Fallback to other possible field names (already in watts)
-        console.log('Checking fallback power fields:', {
-            power: device.power,
-            Power: device.Power,
-            powerWatts: device.powerWatts,
-            PowerWatts: device.PowerWatts,
-            currentPower: device.currentPower,
-            CurrentPower: device.CurrentPower,
-            instantPower: device.instantPower,
-            InstantPower: device.InstantPower
-        });
-        
-        const fallbackValue = device.power || device.Power || device.powerWatts || device.PowerWatts || 
-               device.currentPower || device.CurrentPower || 
+
+        const fallbackValue = device.power || device.Power || device.powerWatts || device.PowerWatts ||
+               device.currentPower || device.CurrentPower ||
                device.instantPower || device.InstantPower || 0;
-        
-        console.log('Fallback value selected:', fallbackValue, 'type:', typeof fallbackValue);
-        
-        const fallback = parseFloat(fallbackValue);
-        console.log('Fallback parsed:', {
-            raw: fallbackValue,
-            parsed: fallback,
-            isNaN: isNaN(fallback)
-        });
-        
-        const result = isNaN(fallback) ? 0 : fallback;
-        console.log('getPowerValue returning (from fallback):', result, 'W');
-        return result;
+        const fallback = parseFloat(String(fallbackValue));
+        return isNaN(fallback) ? 0 : fallback;
     }
 
     setupEventListeners() {
@@ -478,28 +375,24 @@ class SolarPanelMonitor {
         const refreshNowBtn = document.getElementById('refreshNow');
         const refreshIntervalInput = document.getElementById('refreshInterval');
         const exportLayoutBtn = document.getElementById('exportLayout');
+        const importLayoutBtn = document.getElementById('importLayout');
+        const importFileInput = document.getElementById('importFileInput');
         const editPlacementCheckbox = document.getElementById('editPlacement');
-        const tooltip = document.getElementById('tooltip');
+        const fitAllBtn = document.getElementById('fitAll');
 
-        // Refresh now button
-        refreshNowBtn.addEventListener('click', () => {
-            this.loadPowerData();
-        });
+        refreshNowBtn.addEventListener('click', () => this.loadPowerData());
 
-        // Refresh interval input
         refreshIntervalInput.addEventListener('change', (e) => {
             this.refreshIntervalMinutes = parseInt(e.target.value) || 5;
+            localStorage.setItem('refreshIntervalMinutes', this.refreshIntervalMinutes);
             this.startAutoRefresh();
         });
 
-        // Export layout button
-        if (exportLayoutBtn) {
-            exportLayoutBtn.addEventListener('click', () => {
-                this.exportPanelLayout();
-            });
-        }
+        if (exportLayoutBtn) exportLayoutBtn.addEventListener('click', () => this.exportPanelLayout());
+        if (importLayoutBtn) importLayoutBtn.addEventListener('click', () => importFileInput && importFileInput.click());
+        if (importFileInput) importFileInput.addEventListener('change', (e) => this.importPanelLayout(e));
+        if (fitAllBtn) fitAllBtn.addEventListener('click', () => this.fitAllPanels());
 
-        // Edit placement checkbox
         if (editPlacementCheckbox) {
             editPlacementCheckbox.addEventListener('change', (e) => {
                 this.editPlacementEnabled = e.target.checked;
@@ -507,266 +400,226 @@ class SolarPanelMonitor {
             });
         }
 
-        // Mouse events for dragging
-        canvas.addEventListener('mousedown', (e) => this.handleMouseDown(e));
-        canvas.addEventListener('mousemove', (e) => this.handleMouseMove(e));
-        canvas.addEventListener('mouseup', () => this.handleMouseUp());
-        canvas.addEventListener('mouseleave', () => this.handleMouseUp());
-
-        // Tooltip positioning
-        canvas.addEventListener('mousemove', (e) => {
-            if (!this.isDragging) {
-                this.updateTooltip(e);
+        // Ctrl+Z to undo last panel move
+        document.addEventListener('keydown', (e) => {
+            if ((e.ctrlKey || e.metaKey) && e.key === 'z' && this.editPlacementEnabled) {
+                this.undoLastMove();
+                e.preventDefault();
             }
         });
+
+        // Mouse events
+        canvas.addEventListener('mousedown', (e) => this.handleMouseDown(e));
+        canvas.addEventListener('mousemove', (e) => this.handleMouseMove(e));
+        canvas.addEventListener('mouseup', (e) => this.handleMouseUp(e));
+        canvas.addEventListener('mouseleave', (e) => this.handleMouseUp(e));
+
+        // Zoom via scroll wheel
+        canvas.addEventListener('wheel', (e) => this.handleWheel(e), { passive: false });
+
+        // Tooltip (skip while dragging or panning)
+        canvas.addEventListener('mousemove', (e) => {
+            if (!this.isDragging && !this.isPanning) this.updateTooltip(e);
+        });
+
+        // Touch events (maps to panel drag in edit mode)
+        canvas.addEventListener('touchstart', (e) => this.handleTouchStart(e), { passive: false });
+        canvas.addEventListener('touchmove', (e) => this.handleTouchMove(e), { passive: false });
+        canvas.addEventListener('touchend', () => this.handleMouseUp({}));
+        canvas.addEventListener('touchcancel', () => this.handleMouseUp({}));
+    }
+
+    handleWheel(e) {
+        e.preventDefault();
+        const factor = e.deltaY < 0 ? 1.1 : 0.9;
+        const newZoom = Math.max(0.1, Math.min(10, this.zoom * factor));
+
+        const canvas = document.getElementById('panelCanvas');
+        const rect = canvas.getBoundingClientRect();
+        const mx = e.clientX - rect.left;
+        const my = e.clientY - rect.top;
+
+        // Keep the SVG point under the cursor fixed while zooming
+        const svgX = this.panX + (mx / rect.width) * (this.baseCanvasWidth / this.zoom);
+        const svgY = this.panY + (my / rect.height) * (this.baseCanvasHeight / this.zoom);
+
+        this.zoom = newZoom;
+        this.panX = svgX - (mx / rect.width) * (this.baseCanvasWidth / this.zoom);
+        this.panY = svgY - (my / rect.height) * (this.baseCanvasHeight / this.zoom);
+
+        this.updateViewBox();
+    }
+
+    handleTouchStart(e) {
+        if (e.touches.length === 1) {
+            const t = e.touches[0];
+            this.handleMouseDown({ button: 0, clientX: t.clientX, clientY: t.clientY });
+        }
+    }
+
+    handleTouchMove(e) {
+        if (e.touches.length === 1) {
+            e.preventDefault();
+            const t = e.touches[0];
+            this.handleMouseMove({ clientX: t.clientX, clientY: t.clientY });
+        }
     }
 
     handleMouseDown(e) {
-        // Only allow dragging if edit placement is enabled
-        if (!this.editPlacementEnabled) {
+        // Middle mouse button: start panning
+        if (e.button === 1) {
+            this.isPanning = true;
+            this.panStartScreen = { x: e.clientX, y: e.clientY };
+            this.panStartValues = { x: this.panX, y: this.panY };
+            e.preventDefault && e.preventDefault();
             return;
         }
 
-        const canvas = document.getElementById('panelCanvas');
-        
-        // Use SVG element-based detection for accurate hit testing
+        if (!this.editPlacementEnabled) return;
+
+        const svgCoords = this.screenToSVG(e.clientX, e.clientY);
+
+        // Find panel via DOM hit test first
+        let panel = null;
         const elementAtPoint = document.elementFromPoint(e.clientX, e.clientY);
-        let panelElement = null;
         if (elementAtPoint) {
-            if (elementAtPoint.classList && elementAtPoint.classList.contains('panel')) {
-                panelElement = elementAtPoint;
-            } else if (elementAtPoint.parentElement && 
-                      elementAtPoint.parentElement.querySelector && 
-                      elementAtPoint.parentElement.querySelector('.panel')) {
-                panelElement = elementAtPoint.parentElement.querySelector('.panel');
+            let el = elementAtPoint;
+            while (el) {
+                if (el.classList && el.classList.contains('panel')) {
+                    const panelId = el.getAttribute('data-panel-id');
+                    panel = this.panels.find(p =>
+                        p.id === panelId || p.serialNumber === panelId || p.inverterSerialNumber === panelId
+                    );
+                    break;
+                }
+                el = el.parentElement;
             }
         }
-        
-        // Find panel by element ID
-        let panel = null;
-        if (panelElement) {
-            const panelId = panelElement.getAttribute('data-panel-id');
-            panel = this.panels.find(p => 
-                (p.id === panelId) || 
-                (p.serialNumber === panelId) || 
-                (p.inverterSerialNumber === panelId)
-            );
-        }
-        
-        // Fallback to coordinate-based detection
+
+        // Fallback: coordinate-based detection
         if (!panel) {
-            const rect = canvas.getBoundingClientRect();
-            const x = e.clientX - rect.left;
-            const y = e.clientY - rect.top;
-            
-            panel = this.panels.find(p => {
-                // Account for rotation in hit detection
-                if (p.planeRotation && p.planeRotation !== 0 && p.planeRotation !== 180 && 
-                    p.planeRotation !== 90 && p.planeRotation !== 270) {
-                    const rad = (p.planeRotation * Math.PI) / 180;
-                    const cos = Math.abs(Math.cos(rad));
-                    const sin = Math.abs(Math.sin(rad));
-                    const rotatedWidth = p.width * cos + p.height * sin;
-                    const rotatedHeight = p.width * sin + p.height * cos;
-                    return x >= p.x && x <= p.x + rotatedWidth &&
-                           y >= p.y && y <= p.y + rotatedHeight;
-                } else {
-                    return x >= p.x && x <= p.x + p.width &&
-                           y >= p.y && y <= p.y + p.height;
-                }
-            });
+            panel = this.panels.find(p =>
+                svgCoords.x >= p.x && svgCoords.x <= p.x + p.width &&
+                svgCoords.y >= p.y && svgCoords.y <= p.y + p.height
+            );
         }
 
         if (panel) {
+            this.dragStartPosition = { panel, x: panel.x, y: panel.y };
             this.isDragging = true;
             this.dragPanel = panel;
-            this.dragOffset = {
-                x: x - panel.x,
-                y: y - panel.y
-            };
-            canvas.style.cursor = 'grabbing';
-            
-            // Hide tooltip when dragging starts
+            this.dragOffset = { x: svgCoords.x - panel.x, y: svgCoords.y - panel.y };
+            document.getElementById('panelCanvas').style.cursor = 'grabbing';
             const tooltip = document.getElementById('tooltip');
-            if (tooltip) {
-                tooltip.classList.add('hidden');
-            }
+            if (tooltip) tooltip.classList.add('hidden');
         }
     }
 
     handleMouseMove(e) {
-        // Stop dragging if edit mode is disabled
-        if (this.isDragging && !this.editPlacementEnabled) {
-            this.handleMouseUp();
-            return;
-        }
-        
-        if (this.isDragging && this.dragPanel) {
+        // Panning
+        if (this.isPanning) {
             const canvas = document.getElementById('panelCanvas');
             const rect = canvas.getBoundingClientRect();
-            let x = e.clientX - rect.left - this.dragOffset.x;
-            let y = e.clientY - rect.top - this.dragOffset.y;
+            const dx = e.clientX - this.panStartScreen.x;
+            const dy = e.clientY - this.panStartScreen.y;
+            // Convert screen delta to SVG units
+            const svgDx = (dx / rect.width) * (this.baseCanvasWidth / this.zoom);
+            const svgDy = (dy / rect.height) * (this.baseCanvasHeight / this.zoom);
+            this.panX = this.panStartValues.x - svgDx;
+            this.panY = this.panStartValues.y - svgDy;
+            this.updateViewBox();
+            return;
+        }
 
-            // Keep panel within canvas bounds
-            x = Math.max(0, x);
-            y = Math.max(0, y);
-            
-            // Check for overlaps with other panels and adjust position
-            const padding = 5; // Minimum spacing
+        if (this.isDragging && !this.editPlacementEnabled) {
+            this.handleMouseUp({});
+            return;
+        }
+
+        if (this.isDragging && this.dragPanel) {
+            const svgCoords = this.screenToSVG(e.clientX, e.clientY);
+            let x = this.snapToGrid(Math.max(0, svgCoords.x - this.dragOffset.x));
+            let y = this.snapToGrid(Math.max(0, svgCoords.y - this.dragOffset.y));
+
+            // Prevent overlap with other panels
+            const padding = 5;
             for (const panel of this.panels) {
-                if (panel !== this.dragPanel && this.panelsOverlap({
-                    x: x, y: y, 
-                    width: this.dragPanel.width, 
-                    height: this.dragPanel.height
-                }, panel)) {
-                    // Calculate how to move to avoid overlap
-                    const overlapX = Math.min(
-                        x + this.dragPanel.width - panel.x,
-                        panel.x + panel.width - x
-                    );
-                    const overlapY = Math.min(
-                        y + this.dragPanel.height - panel.y,
-                        panel.y + panel.height - y
-                    );
-                    
-                    if (overlapX < overlapY) {
-                        // Adjust horizontally
-                        if (x < panel.x) {
-                            x = panel.x - this.dragPanel.width - padding;
-                        } else {
-                            x = panel.x + panel.width + padding;
-                        }
+                if (panel !== this.dragPanel && this.panelsOverlap(
+                    { x, y, width: this.dragPanel.width, height: this.dragPanel.height }, panel
+                )) {
+                    const ox = Math.min(x + this.dragPanel.width - panel.x, panel.x + panel.width - x);
+                    const oy = Math.min(y + this.dragPanel.height - panel.y, panel.y + panel.height - y);
+                    if (ox < oy) {
+                        x = x < panel.x ? panel.x - this.dragPanel.width - padding : panel.x + panel.width + padding;
                     } else {
-                        // Adjust vertically
-                        if (y < panel.y) {
-                            y = panel.y - this.dragPanel.height - padding;
-                        } else {
-                            y = panel.y + panel.height + padding;
-                        }
+                        y = y < panel.y ? panel.y - this.dragPanel.height - padding : panel.y + panel.height + padding;
                     }
                 }
             }
 
-            // Update panel position
             this.dragPanel.x = Math.max(0, x);
             this.dragPanel.y = Math.max(0, y);
             this.render();
         }
     }
 
-    handleMouseUp() {
+    handleMouseUp(e) {
+        if (this.isPanning) {
+            this.isPanning = false;
+            document.getElementById('panelCanvas').style.cursor = 'default';
+            return;
+        }
         if (this.isDragging) {
             this.isDragging = false;
             this.dragPanel = null;
             const canvas = document.getElementById('panelCanvas');
-            // Reset cursor based on edit mode
-            if (this.editPlacementEnabled) {
-                canvas.style.cursor = 'move';
-            } else {
-                canvas.style.cursor = 'default';
-            }
+            canvas.style.cursor = this.editPlacementEnabled ? 'move' : 'default';
+        }
+    }
+
+    undoLastMove() {
+        if (this.dragStartPosition) {
+            const { panel, x, y } = this.dragStartPosition;
+            panel.x = x;
+            panel.y = y;
+            this.dragStartPosition = null;
+            this.render();
+            this.updateStatus('Undo: panel position restored');
         }
     }
 
     updateTooltip(e) {
         const canvas = document.getElementById('panelCanvas');
         const tooltip = document.getElementById('tooltip');
-        
-        // Find the element at the mouse position
+
+        let panel = null;
+
+        // DOM hit test: walk up tree to find a panel element
         const elementAtPoint = document.elementFromPoint(e.clientX, e.clientY);
-        
-        // Traverse up the DOM tree to find a panel element
-        let panelElement = null;
-        let currentElement = elementAtPoint;
-        
-        while (currentElement && currentElement !== canvas && !panelElement) {
-            // Check if current element is a panel rect
-            if (currentElement.classList && currentElement.classList.contains('panel')) {
-                panelElement = currentElement;
+        let el = elementAtPoint;
+        while (el && el !== canvas) {
+            if (el.classList && el.classList.contains('panel')) {
+                const panelId = el.getAttribute('data-panel-id');
+                panel = this.panels.find(p =>
+                    p.id === panelId || p.serialNumber === panelId || p.inverterSerialNumber === panelId
+                );
                 break;
             }
-            // Check if current element contains a panel rect
-            if (currentElement.querySelector) {
-                const panelRect = currentElement.querySelector('.panel');
-                if (panelRect) {
-                    panelElement = panelRect;
-                    break;
-                }
-            }
-            // Move up to parent
-            currentElement = currentElement.parentElement || currentElement.parentNode;
+            el = el.parentElement || el.parentNode;
         }
-        
-        // Find panel by element ID
-        let panel = null;
-        if (panelElement) {
-            const panelId = panelElement.getAttribute('data-panel-id');
-            if (panelId) {
-                panel = this.panels.find(p => 
-                    (p.id === panelId) || 
-                    (p.serialNumber === panelId) || 
-                    (p.inverterSerialNumber === panelId)
-                );
-            }
-        }
-        
-        // Fallback: use coordinate-based detection with proper SVG coordinate transformation
+
+        // Fallback: SVG coordinate-based detection
         if (!panel) {
-            const rect = canvas.getBoundingClientRect();
-            const svgPoint = canvas.createSVGPoint();
-            svgPoint.x = e.clientX;
-            svgPoint.y = e.clientY;
-            
-            // Transform screen coordinates to SVG coordinates
-            const ctm = canvas.getScreenCTM();
-            if (ctm) {
-                const inverseCTM = ctm.inverse();
-                const transformedPoint = svgPoint.matrixTransform(inverseCTM);
-                const x = transformedPoint.x;
-                const y = transformedPoint.y;
-                
-                panel = this.panels.find(p => {
-                    // Check if point is within panel bounds (accounting for rotation)
-                    // For rotated panels, we need to check the actual rotated rectangle
-                    if (p.planeRotation && p.planeRotation !== 0 && p.planeRotation !== 180 && 
-                        p.planeRotation !== 90 && p.planeRotation !== 270) {
-                        // For arbitrary rotations, check against rotated bounding box
-                        const rad = (p.planeRotation * Math.PI) / 180;
-                        const cos = Math.abs(Math.cos(rad));
-                        const sin = Math.abs(Math.sin(rad));
-                        const rotatedWidth = p.width * cos + p.height * sin;
-                        const rotatedHeight = p.width * sin + p.height * cos;
-                        return x >= p.x && x <= p.x + rotatedWidth &&
-                               y >= p.y && y <= p.y + rotatedHeight;
-                    } else {
-                        // For 0°, 90°, 180°, 270° - dimensions are already swapped if needed
-                        return x >= p.x && x <= p.x + p.width &&
-                               y >= p.y && y <= p.y + p.height;
-                    }
-                });
-            } else {
-                // Fallback to simple coordinate calculation if CTM not available
-                const x = e.clientX - rect.left;
-                const y = e.clientY - rect.top;
-                
-                panel = this.panels.find(p => {
-                    return x >= p.x && x <= p.x + p.width &&
-                           y >= p.y && y <= p.y + p.height;
-                });
-            }
+            const svgCoords = this.screenToSVG(e.clientX, e.clientY);
+            panel = this.panels.find(p =>
+                svgCoords.x >= p.x && svgCoords.x <= p.x + p.width &&
+                svgCoords.y >= p.y && svgCoords.y <= p.y + p.height
+            );
         }
 
         if (panel) {
-            const powerInfo = this.powerData[panel.id] || 
-                             this.powerData[panel.serialNumber] || 
-                             this.powerData[panel.inverterSerialNumber] || {};
-            this.showTooltip(e.clientX, e.clientY, panel, powerInfo);
-            // Update cursor based on edit mode
-            if (this.editPlacementEnabled) {
-                canvas.style.cursor = 'move';
-            } else {
-                canvas.style.cursor = 'default';
-            }
+            this.showTooltip(e.clientX, e.clientY, panel, this.getPanelPowerInfo(panel));
+            canvas.style.cursor = this.editPlacementEnabled ? 'move' : 'default';
         } else {
             tooltip.classList.add('hidden');
             canvas.style.cursor = 'default';
@@ -776,291 +629,183 @@ class SolarPanelMonitor {
     updateCursorStyle() {
         const canvas = document.getElementById('panelCanvas');
         if (!canvas) return;
-        
-        // Update cursor style based on edit mode
-        // The cursor will be updated dynamically when hovering over panels
-        if (!this.editPlacementEnabled) {
-            canvas.style.cursor = 'default';
-        }
+        if (!this.editPlacementEnabled) canvas.style.cursor = 'default';
     }
 
     showTooltip(x, y, panel, powerInfo) {
         const tooltip = document.getElementById('tooltip');
         tooltip.classList.remove('hidden');
-        
-        let html = `<h3>Panel Details</h3>`;
-        
-        // Add all panel properties
-        Object.keys(panel).forEach(key => {
-            if (key !== 'x' && key !== 'y' && key !== 'width' && key !== 'height') {
-                html += `<p><span class="label">${key}:</span> ${panel[key]}</p>`;
+
+        const power = this.getPowerValue(powerInfo);
+        const displayName = panel.label || panel.id || panel.serialNumber || 'Unknown';
+
+        // Efficiency if ratedWatts is configured on the panel
+        let efficiencyHtml = '';
+        if (panel.ratedWatts && panel.ratedWatts > 0) {
+            const pct = ((power / panel.ratedWatts) * 100).toFixed(1);
+            efficiencyHtml = `<p><span class="label">Efficiency:</span> ${pct}% of ${panel.ratedWatts} W rated</p>`;
+        }
+
+        // Curated power fields shown from the API device object
+        const curatedFields = [
+            { key: 'p_3phsum_kw', label: 'AC Power (kW)' },
+            { key: 'p_3phsum_kW', label: 'AC Power (kW)' },
+            { key: 'v_ac',        label: 'AC Voltage (V)' },
+            { key: 'v_dc',        label: 'DC Voltage (V)' },
+            { key: 'i_ac',        label: 'AC Current (A)' },
+            { key: 'i_dc',        label: 'DC Current (A)' },
+            { key: 'freq',        label: 'Frequency (Hz)' },
+            { key: 't_htsnk_degc', label: 'Temp (°C)' },
+            { key: 'DESCR',       label: 'Model' },
+            { key: 'MOD_SN',      label: 'Module S/N' },
+        ];
+
+        let powerHtml = '';
+        curatedFields.forEach(({ key, label }) => {
+            if (powerInfo[key] !== undefined && powerInfo[key] !== null && powerInfo[key] !== '') {
+                powerHtml += `<p><span class="label">${label}:</span> ${powerInfo[key]}</p>`;
             }
         });
-        
-        // Add all power info properties
-        Object.keys(powerInfo).forEach(key => {
-            html += `<p><span class="label">${key}:</span> ${powerInfo[key]}</p>`;
-        });
-        
-        tooltip.innerHTML = html;
-        
-        // Initial position (to the right and below cursor)
+
+        // Fallback: show first 8 fields if none of the curated fields matched
+        if (!powerHtml && Object.keys(powerInfo).length > 0) {
+            Object.entries(powerInfo).slice(0, 8).forEach(([key, val]) => {
+                powerHtml += `<p><span class="label">${key}:</span> ${val}</p>`;
+            });
+        }
+
+        tooltip.innerHTML = `
+            <h3>${displayName}</h3>
+            <p><span class="label">Power:</span> ${power.toFixed(1)} W</p>
+            ${efficiencyHtml}
+            <p><span class="label">Serial:</span> ${panel.serialNumber || panel.inverterSerialNumber || '—'}</p>
+            <p><span class="label">Rotation:</span> ${panel.planeRotation || 0}°</p>
+            ${powerHtml}
+        `;
+
+        // Position tooltip, keeping it within the viewport
         const offset = 10;
-        let tooltipX = x + offset;
-        let tooltipY = y + offset;
-        
-        // Temporarily position tooltip to get accurate dimensions
-        tooltip.style.left = `${tooltipX}px`;
-        tooltip.style.top = `${tooltipY}px`;
-        
-        // Get tooltip dimensions after rendering
-        const tooltipRect = tooltip.getBoundingClientRect();
-        const tooltipWidth = tooltipRect.width;
-        const tooltipHeight = tooltipRect.height;
-        
-        // Get viewport dimensions
-        const viewportWidth = window.innerWidth;
-        const viewportHeight = window.innerHeight;
-        
-        // Adjust horizontal position if tooltip goes off screen
-        if (tooltipX + tooltipWidth > viewportWidth) {
-            // Try positioning to the left of cursor
-            tooltipX = x - tooltipWidth - offset;
-            // If still off screen on the left, position at screen edge
-            if (tooltipX < 0) {
-                tooltipX = offset;
-            }
-        }
-        // Ensure tooltip doesn't go off left edge
-        if (tooltipX < 0) {
-            tooltipX = offset;
-        }
-        
-        // Adjust vertical position if tooltip goes off screen
-        if (tooltipY + tooltipHeight > viewportHeight) {
-            // Try positioning above cursor
-            tooltipY = y - tooltipHeight - offset;
-            // If still off screen at top, position at screen edge
-            if (tooltipY < 0) {
-                tooltipY = offset;
-            }
-        }
-        // Ensure tooltip doesn't go off top edge
-        if (tooltipY < 0) {
-            tooltipY = offset;
-        }
-        
-        // Apply final position
-        tooltip.style.left = `${tooltipX}px`;
-        tooltip.style.top = `${tooltipY}px`;
-        
-        // Final check: verify tooltip is fully on screen and adjust if needed
-        const finalRect = tooltip.getBoundingClientRect();
-        let adjustedX = tooltipX;
-        let adjustedY = tooltipY;
-        
-        // Ensure tooltip doesn't go off right edge
-        if (finalRect.right > viewportWidth) {
-            adjustedX = viewportWidth - tooltipWidth - offset;
-        }
-        // Ensure tooltip doesn't go off left edge
-        if (finalRect.left < 0) {
-            adjustedX = offset;
-        }
-        // Ensure tooltip doesn't go off bottom edge
-        if (finalRect.bottom > viewportHeight) {
-            adjustedY = viewportHeight - tooltipHeight - offset;
-        }
-        // Ensure tooltip doesn't go off top edge
-        if (finalRect.top < 0) {
-            adjustedY = offset;
-        }
-        
-        // If tooltip is larger than viewport, center it
-        if (tooltipWidth > viewportWidth - 2 * offset) {
-            adjustedX = Math.max(offset, (viewportWidth - tooltipWidth) / 2);
-        }
-        if (tooltipHeight > viewportHeight - 2 * offset) {
-            adjustedY = Math.max(offset, (viewportHeight - tooltipHeight) / 2);
-        }
-        
-        // Apply any final adjustments
-        if (adjustedX !== tooltipX || adjustedY !== tooltipY) {
-            tooltip.style.left = `${adjustedX}px`;
-            tooltip.style.top = `${adjustedY}px`;
-        }
+        let tx = x + offset;
+        let ty = y + offset;
+        tooltip.style.left = `${tx}px`;
+        tooltip.style.top = `${ty}px`;
+
+        const tr = tooltip.getBoundingClientRect();
+        if (tx + tr.width > window.innerWidth) tx = Math.max(offset, x - tr.width - offset);
+        if (ty + tr.height > window.innerHeight) ty = Math.max(offset, y - tr.height - offset);
+
+        tooltip.style.left = `${tx}px`;
+        tooltip.style.top = `${ty}px`;
     }
 
     getColorForPower(power) {
-        if (this.maxPower === 0) return '#000000'; // Black for no power
-        
-        // If power is 0, return black
         if (power === 0) return '#000000';
-        
-        // Calculate ratio, but ensure any non-zero power has at least some visible color
-        // Minimum green value of 30 (out of 255) for any panel with power > 0
         const ratio = Math.min(power / this.maxPower, 1);
-        const minGreen = 30; // Minimum green value for visibility
-        const maxGreen = 255;
-        const greenRange = maxGreen - minGreen;
-        
-        // Scale from minGreen to maxGreen based on ratio
-        const g = Math.floor(minGreen + (greenRange * ratio));
-        
-        // Interpolate from dark green to bright green
-        const r = Math.floor(0);
-        const b = Math.floor(0);
-        
-        return `rgb(${r}, ${g}, ${b})`;
+        const minGreen = 30;
+        const g = Math.floor(minGreen + ((255 - minGreen) * ratio));
+        return `rgb(0, ${g}, 0)`;
     }
 
     render() {
         const canvas = document.getElementById('panelCanvas');
-        if (!canvas) {
-            console.error('Canvas element not found!');
-            return;
-        }
-        
+        if (!canvas) return;
+
         const svgNS = 'http://www.w3.org/2000/svg';
-        
-        // Clear canvas
         canvas.innerHTML = '';
-        
-        console.log(`Rendering ${this.panels.length} panels`);
-        console.log('Power data available:', Object.keys(this.powerData).length, 'devices');
-        console.log('Max power:', this.maxPower);
-        console.log('Power data keys (first 5):', Object.keys(this.powerData).slice(0, 5));
-        
+
         if (this.panels.length === 0) {
-            console.warn('No panels to render!');
-            // Set minimum canvas size
-            canvas.setAttribute('width', window.innerWidth);
-            canvas.setAttribute('height', window.innerHeight - 100);
+            this.baseCanvasWidth = window.innerWidth;
+            this.baseCanvasHeight = window.innerHeight - 100;
+            this.updateViewBox();
             return;
         }
-        
-        // Calculate canvas size based on panel positions
-        // Account for rotation by calculating bounding box
+
+        // Calculate the bounding extent of all panels for the coordinate space
         let maxX = 0, maxY = 0;
         this.panels.forEach(panel => {
-            // For rotated panels, calculate the bounding box
             if (panel.planeRotation && panel.planeRotation !== 0 && panel.planeRotation !== 180) {
-                // For 90° and 270° rotations, dimensions are already swapped
-                // For other angles, we use square dimensions
                 const rad = (panel.planeRotation * Math.PI) / 180;
                 const cos = Math.abs(Math.cos(rad));
                 const sin = Math.abs(Math.sin(rad));
-                const rotatedWidth = panel.width * cos + panel.height * sin;
-                const rotatedHeight = panel.width * sin + panel.height * cos;
-                maxX = Math.max(maxX, panel.x + rotatedWidth);
-                maxY = Math.max(maxY, panel.y + rotatedHeight);
+                maxX = Math.max(maxX, panel.x + panel.width * cos + panel.height * sin);
+                maxY = Math.max(maxY, panel.y + panel.width * sin + panel.height * cos);
             } else {
-                // For 0° and 180°, no rotation adjustment needed
                 maxX = Math.max(maxX, panel.x + panel.width);
                 maxY = Math.max(maxY, panel.y + panel.height);
             }
         });
-        
-        const canvasWidth = Math.max(maxX + 50, window.innerWidth);
-        const canvasHeight = Math.max(maxY + 50, window.innerHeight - 100);
-        
-        canvas.setAttribute('width', canvasWidth);
-        canvas.setAttribute('height', canvasHeight);
-        canvas.setAttribute('viewBox', `0 0 ${canvasWidth} ${canvasHeight}`);
-        canvas.setAttribute('preserveAspectRatio', 'xMidYMid meet');
-        
-        console.log(`Canvas size: ${canvasWidth}x${canvasHeight}`);
-        
+
+        this.baseCanvasWidth = maxX + 50;
+        this.baseCanvasHeight = maxY + 50;
+
+        // Compute median power of active panels for underperforming detection
+        const activePowers = this.panels
+            .map(p => this.getPowerValue(this.getPanelPowerInfo(p)))
+            .filter(v => v > 0)
+            .sort((a, b) => a - b);
+        const medianPower = activePowers.length > 0
+            ? activePowers[Math.floor(activePowers.length / 2)]
+            : 0;
+
         // Render each panel
-        this.panels.forEach((panel, index) => {
-            // Try multiple ways to match panel to power data
-            const powerInfo = this.powerData[panel.id] || 
-                             this.powerData[panel.serialNumber] || 
-                             this.powerData[panel.inverterSerialNumber] || {};
-            
-            // Debug matching
-            if (index < 3) { // Log first 3 panels for debugging
-                console.log(`Panel ${index} matching:`, {
-                    id: panel.id,
-                    serialNumber: panel.serialNumber,
-                    inverterSerialNumber: panel.inverterSerialNumber,
-                    foundPowerInfo: !!powerInfo && Object.keys(powerInfo).length > 0,
-                    powerDataKeys: Object.keys(this.powerData).slice(0, 5)
-                });
-            }
-            
+        this.panels.forEach(panel => {
+            const powerInfo = this.getPanelPowerInfo(panel);
             const power = this.getPowerValue(powerInfo);
             const color = this.getColorForPower(power);
-            
-            console.log(`Panel ${index}: id=${panel.id}, power=${power}, color=${color}, pos=(${panel.x},${panel.y}), size=${panel.width}x${panel.height}, rotation=${panel.planeRotation}°`);
-            
-            // Create a group for the panel to apply rotation
+            const isUnderperforming = medianPower > 0 && power > 0 && power < medianPower * 0.5;
+
             const group = document.createElementNS(svgNS, 'g');
-            
-            // Calculate center point for rotation
             const centerX = panel.x + panel.width / 2;
             const centerY = panel.y + panel.height / 2;
-            
-            // Apply rotation transform only for angles that aren't 0/90/180/270
-            // For 0/90/180/270, dimensions are already swapped, so no visual rotation needed
-            if (panel.planeRotation && 
-                panel.planeRotation !== 0 && 
-                panel.planeRotation !== 90 && 
-                panel.planeRotation !== 180 && 
+
+            if (panel.planeRotation &&
+                panel.planeRotation !== 0 &&
+                panel.planeRotation !== 90 &&
+                panel.planeRotation !== 180 &&
                 panel.planeRotation !== 270) {
                 group.setAttribute('transform', `rotate(${panel.planeRotation} ${centerX} ${centerY})`);
             }
-            
-            // Create panel rectangle (positioned relative to top-left corner)
+
             const rect = document.createElementNS(svgNS, 'rect');
             rect.setAttribute('x', panel.x);
             rect.setAttribute('y', panel.y);
             rect.setAttribute('width', panel.width);
             rect.setAttribute('height', panel.height);
             rect.setAttribute('fill', color);
-            rect.setAttribute('class', 'panel');
+            rect.setAttribute('class', isUnderperforming ? 'panel underperforming' : 'panel');
             rect.setAttribute('data-panel-id', panel.id || panel.serialNumber);
             group.appendChild(rect);
-            
-            // Add power text
+
             const text = document.createElementNS(svgNS, 'text');
             text.setAttribute('x', centerX);
             text.setAttribute('y', centerY);
             text.setAttribute('text-anchor', 'middle');
             text.setAttribute('dominant-baseline', 'middle');
             text.setAttribute('class', 'panel-text');
-            text.textContent = `${power.toFixed(1)}W`;
+            // Show custom label if defined, otherwise show power reading
+            text.textContent = panel.label || `${power.toFixed(1)}W`;
             group.appendChild(text);
-            
+
             canvas.appendChild(group);
         });
-        
-        console.log('Rendering complete, canvas children:', canvas.children.length);
-        
-        // Force a reflow/repaint to ensure SVG updates are applied
-        // This is especially important in Selenium/headless browsers
-        const dummy = canvas.offsetHeight; // Trigger reflow
-        
-        // Use requestAnimationFrame to ensure browser processes DOM changes
-        requestAnimationFrame(() => {
-            console.log('Render animation frame complete, final canvas children:', canvas.children.length);
-        });
+
+        // Trigger reflow for headless browser compatibility
+        const dummy = canvas.offsetHeight;
+
+        this.updateViewBox();
     }
 
     startAutoRefresh() {
-        if (this.refreshInterval) {
-            clearInterval(this.refreshInterval);
-        }
-        
-        const intervalMs = this.refreshIntervalMinutes * 60 * 1000;
-        this.refreshInterval = setInterval(() => {
-            this.loadPowerData();
-        }, intervalMs);
+        if (this.refreshInterval) clearInterval(this.refreshInterval);
+        this.refreshInterval = setInterval(
+            () => this.loadPowerData(),
+            this.refreshIntervalMinutes * 60 * 1000
+        );
     }
 
     updateStatus(message) {
         const status = document.getElementById('status');
-        status.textContent = message;
+        if (status) status.textContent = message;
     }
 
     exportPanelLayout() {
@@ -1069,27 +814,22 @@ class SolarPanelMonitor {
             return;
         }
 
-        // Create export data with only the essential fields
-        const exportData = this.panels.map(panel => {
-            return {
-                id: panel.id,
-                x: panel.x,
-                y: panel.y,
-                width: panel.width,
-                height: panel.height,
-                planeRotation: panel.planeRotation,
-                inverterSerialNumber: panel.inverterSerialNumber,
-                serialNumber: panel.serialNumber
-            };
-        });
+        const exportData = this.panels.map(panel => ({
+            id: panel.id,
+            x: panel.x,
+            y: panel.y,
+            width: panel.width,
+            height: panel.height,
+            planeRotation: panel.planeRotation,
+            inverterSerialNumber: panel.inverterSerialNumber,
+            serialNumber: panel.serialNumber,
+            ...(panel.label ? { label: panel.label } : {}),
+            ...(panel.ratedWatts ? { ratedWatts: panel.ratedWatts } : {})
+        }));
 
-        // Format as JSON string for config.js
         const jsonString = JSON.stringify(exportData, null, 4);
-        
-        // Create a formatted string for config.js
         const configString = `    localLayout: ${jsonString}`;
 
-        // Create a blob and download it
         const blob = new Blob([configString], { type: 'text/plain' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
@@ -1100,20 +840,58 @@ class SolarPanelMonitor {
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
 
-        // Also copy to clipboard
         navigator.clipboard.writeText(configString).then(() => {
-            this.updateStatus(`Panel layout exported! Copied to clipboard. (${this.panels.length} panels)`);
-            console.log('Panel layout copied to clipboard:', configString);
-        }).catch(err => {
-            console.error('Failed to copy to clipboard:', err);
-            this.updateStatus(`Panel layout exported to file! (${this.panels.length} panels)`);
+            this.updateStatus(`Layout exported & copied to clipboard (${this.panels.length} panels)`);
+        }).catch(() => {
+            this.updateStatus(`Layout exported to file (${this.panels.length} panels)`);
         });
+    }
+
+    importPanelLayout(e) {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onload = (event) => {
+            try {
+                let text = event.target.result.trim();
+
+                // Strip leading "localLayout:" prefix if present (from exported format)
+                text = text.replace(/^[\s\S]*?(\[)/, '$1');
+
+                const match = text.match(/\[[\s\S]*\]/);
+                if (!match) throw new Error('No JSON array found in file');
+
+                const layout = JSON.parse(match[0]);
+                if (!Array.isArray(layout) || layout.length === 0) {
+                    throw new Error('Expected a non-empty array');
+                }
+
+                this.panels = layout.map((panel, index) => ({
+                    ...panel,
+                    id: panel.id || `panel-${index}`,
+                    x: panel.x || 0,
+                    y: panel.y || 0,
+                    width: panel.width || 80,
+                    height: panel.height || 120,
+                    planeRotation: panel.planeRotation || 0
+                }));
+
+                this.resolveOverlaps();
+                this.updateStatus(`Imported ${this.panels.length} panels from file`);
+                this.updateSummary();
+                this.render();
+                this.fitAllPanels();
+            } catch (err) {
+                console.error('Import error:', err);
+                alert(`Failed to import layout: ${err.message}`);
+            }
+        };
+        reader.readAsText(file);
+        e.target.value = ''; // Allow re-importing the same file
     }
 }
 
-// Initialize the app when DOM is loaded
 document.addEventListener('DOMContentLoaded', () => {
     new SolarPanelMonitor();
 });
-
-

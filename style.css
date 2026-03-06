@@ -66,7 +66,7 @@ h1 {
     color: #e0e0e0;
     padding: 0.5rem;
     border-radius: 4px;
-    width: 80px;
+    width: 60px;
 }
 
 .controls input[type="number"]:focus {
@@ -83,6 +83,7 @@ button {
     cursor: pointer;
     font-weight: 600;
     transition: background 0.2s;
+    white-space: nowrap;
 }
 
 button:hover {
@@ -98,9 +99,23 @@ button:active {
     font-size: 0.9rem;
 }
 
+/* Night mode banner */
+.night-mode-banner {
+    background: #1e293b;
+    border-bottom: 1px solid #334155;
+    color: #94a3b8;
+    text-align: center;
+    padding: 0.5rem 1rem;
+    font-size: 0.9rem;
+}
+
+.night-mode-banner.hidden {
+    display: none;
+}
+
 #canvasContainer {
     flex: 1;
-    overflow: auto;
+    overflow: hidden;
     background: #0f0f0f;
     position: relative;
 }
@@ -109,6 +124,7 @@ button:active {
     display: block;
     width: 100%;
     height: 100%;
+    cursor: default;
 }
 
 .panel {
@@ -122,6 +138,18 @@ button:active {
     stroke-width: 2;
 }
 
+/* Underperforming panel: amber dashed border */
+.panel.underperforming {
+    stroke: #f59e0b;
+    stroke-width: 3;
+    stroke-dasharray: 6 3;
+}
+
+.panel.underperforming:hover {
+    stroke: #fbbf24;
+    stroke-width: 3;
+}
+
 .panel-text {
     pointer-events: none;
     font-size: 12px;
@@ -133,14 +161,14 @@ button:active {
 }
 
 .tooltip {
-    position: absolute;
-    background: rgba(42, 42, 42, 0.95);
+    position: fixed;
+    background: rgba(42, 42, 42, 0.97);
     border: 1px solid #4ade80;
     border-radius: 6px;
     padding: 1rem;
     color: #e0e0e0;
     font-size: 0.85rem;
-    max-width: 300px;
+    max-width: 280px;
     z-index: 1000;
     pointer-events: none;
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
@@ -166,6 +194,78 @@ button:active {
     font-weight: 600;
 }
 
+/* Color legend (bottom-left of canvas) */
+.color-legend {
+    position: absolute;
+    bottom: 20px;
+    left: 20px;
+    background: rgba(42, 42, 42, 0.92);
+    border: 1px solid #555;
+    border-radius: 6px;
+    padding: 0.65rem 0.75rem;
+    font-size: 0.8rem;
+    color: #e0e0e0;
+    min-width: 130px;
+    z-index: 50;
+    pointer-events: none;
+}
+
+.legend-title {
+    font-weight: 600;
+    margin-bottom: 0.4rem;
+    color: #9ca3af;
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.legend-gradient {
+    height: 10px;
+    background: linear-gradient(to right, #000000, #001e00, #00ff00);
+    border-radius: 2px;
+    margin-bottom: 0.25rem;
+}
+
+.legend-labels {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.72rem;
+    color: #9ca3af;
+    margin-bottom: 0.5rem;
+}
+
+.legend-underperforming {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.75rem;
+    color: #9ca3af;
+    padding-top: 0.4rem;
+    border-top: 1px solid #3a3a3a;
+}
+
+.legend-swatch {
+    display: inline-block;
+    width: 18px;
+    height: 11px;
+    border: 2px dashed #f59e0b;
+    background: rgb(0, 60, 0);
+    border-radius: 1px;
+    flex-shrink: 0;
+}
+
+/* Zoom hint (bottom-right of canvas) */
+.zoom-hint {
+    position: absolute;
+    bottom: 20px;
+    right: 20px;
+    color: #4a4a4a;
+    font-size: 0.75rem;
+    pointer-events: none;
+    user-select: none;
+}
+
+/* Power summary box */
 .summary-box {
     position: fixed;
     bottom: 20px;
@@ -211,3 +311,6 @@ button:active {
     font-size: 1rem;
 }
 
+.summary-value--small {
+    font-size: 0.85rem;
+}

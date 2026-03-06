@@ -30,7 +30,13 @@ Just load index.html into a browser... no server needed!
 
 ## Panel Layout Export/Import
 
+Upon page load, the panel layout will be determined using the `getPanelsLayout` operation from the PV6. This is supposed to
+get the layout data from `The panels layout, from EDP with fallback to the one stored on the PVS` but I have found this
+fallback time to be infinite, so you will likely need to allow the PV6 to access the Internet to get your initial panel 
+layout, which you can then export so the PV6 will not require future access to the Internet. 
+
 You can export the panel layout (including any manual position adjustments) and use it locally instead of fetching from the API.
+This will make the initial page load faster and provides a solution for layouts being inaccurate or inaccessible.
 
 ### Exporting the Panel Layout
 
