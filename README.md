@@ -77,8 +77,9 @@ const CONFIG = {
 };
 ```
 
-5. Save `config.js` and refresh the application
-6. The app will now use the local layout instead of fetching from the API
+5. If desired, change the value of `id` to a friendly name (defaults to serial number)
+6. Save `config.js` and refresh the application
+7. The app will now use the local layout instead of fetching from the API
 
 **Note:** When `localLayout` is configured, the app will skip fetching the panel layout from the API, which can be useful for:
 - Offline use

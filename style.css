@@ -46,6 +46,50 @@ h1 {
     gap: 0.5rem;
 }
 
+/* Toggle switch */
+.toggle-label {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    cursor: pointer;
+    user-select: none;
+}
+
+.toggle-label input[type="checkbox"] {
+    position: absolute;
+    opacity: 0;
+    width: 0;
+    height: 0;
+}
+
+.toggle-track {
+    display: inline-flex;
+    align-items: center;
+    width: 36px;
+    height: 20px;
+    background: #555;
+    border-radius: 10px;
+    padding: 2px;
+    transition: background 0.2s;
+    flex-shrink: 0;
+}
+
+.toggle-thumb {
+    width: 16px;
+    height: 16px;
+    background: #e0e0e0;
+    border-radius: 50%;
+    transition: transform 0.2s;
+}
+
+.toggle-label input:checked ~ .toggle-track {
+    background: #4ade80;
+}
+
+.toggle-label input:checked ~ .toggle-track .toggle-thumb {
+    transform: translateX(16px);
+}
+
 .checkbox-label {
     display: flex;
     align-items: center;

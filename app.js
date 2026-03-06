@@ -10,6 +10,7 @@ class SolarPanelMonitor {
         this.dragOffset = { x: 0, y: 0 };
         this.dragStartPosition = null;
         this.editPlacementEnabled = false;
+        this.detailedMode = false;
         this.debug = false;
 
         // Zoom & pan
@@ -375,9 +376,8 @@ class SolarPanelMonitor {
         const refreshNowBtn = document.getElementById('refreshNow');
         const refreshIntervalInput = document.getElementById('refreshInterval');
         const exportLayoutBtn = document.getElementById('exportLayout');
-        const importLayoutBtn = document.getElementById('importLayout');
-        const importFileInput = document.getElementById('importFileInput');
         const editPlacementCheckbox = document.getElementById('editPlacement');
+        const detailedModeToggle = document.getElementById('detailedMode');
         const fitAllBtn = document.getElementById('fitAll');
 
         refreshNowBtn.addEventListener('click', () => this.loadPowerData());
@@ -389,9 +389,10 @@ class SolarPanelMonitor {
         });
 
         if (exportLayoutBtn) exportLayoutBtn.addEventListener('click', () => this.exportPanelLayout());
-        if (importLayoutBtn) importLayoutBtn.addEventListener('click', () => importFileInput && importFileInput.click());
-        if (importFileInput) importFileInput.addEventListener('change', (e) => this.importPanelLayout(e));
         if (fitAllBtn) fitAllBtn.addEventListener('click', () => this.fitAllPanels());
+        if (detailedModeToggle) detailedModeToggle.addEventListener('change', (e) => {
+            this.detailedMode = e.target.checked;
+        });
 
         if (editPlacementCheckbox) {
             editPlacementCheckbox.addEventListener('change', (e) => {
@@ -646,32 +647,38 @@ class SolarPanelMonitor {
             efficiencyHtml = `<p><span class="label">Efficiency:</span> ${pct}% of ${panel.ratedWatts} W rated</p>`;
         }
 
-        // Curated power fields shown from the API device object
-        const curatedFields = [
-            { key: 'p_3phsum_kw', label: 'AC Power (kW)' },
-            { key: 'p_3phsum_kW', label: 'AC Power (kW)' },
-            { key: 'v_ac',        label: 'AC Voltage (V)' },
-            { key: 'v_dc',        label: 'DC Voltage (V)' },
-            { key: 'i_ac',        label: 'AC Current (A)' },
-            { key: 'i_dc',        label: 'DC Current (A)' },
-            { key: 'freq',        label: 'Frequency (Hz)' },
-            { key: 't_htsnk_degc', label: 'Temp (°C)' },
-            { key: 'DESCR',       label: 'Model' },
-            { key: 'MOD_SN',      label: 'Module S/N' },
-        ];
-
         let powerHtml = '';
-        curatedFields.forEach(({ key, label }) => {
-            if (powerInfo[key] !== undefined && powerInfo[key] !== null && powerInfo[key] !== '') {
-                powerHtml += `<p><span class="label">${label}:</span> ${powerInfo[key]}</p>`;
-            }
-        });
 
-        // Fallback: show first 8 fields if none of the curated fields matched
-        if (!powerHtml && Object.keys(powerInfo).length > 0) {
-            Object.entries(powerInfo).slice(0, 8).forEach(([key, val]) => {
+        if (this.detailedMode) {
+            // Show every field from the API device object
+            Object.entries(powerInfo).forEach(([key, val]) => {
                 powerHtml += `<p><span class="label">${key}:</span> ${val}</p>`;
             });
+        } else {
+            // Show only curated, human-readable fields
+            const curatedFields = [
+                { key: 'p_3phsum_kw',  label: 'AC Power (kW)' },
+                { key: 'p_3phsum_kW',  label: 'AC Power (kW)' },
+                { key: 'v_ac',         label: 'AC Voltage (V)' },
+                { key: 'v_dc',         label: 'DC Voltage (V)' },
+                { key: 'i_ac',         label: 'AC Current (A)' },
+                { key: 'i_dc',         label: 'DC Current (A)' },
+                { key: 'freq',         label: 'Frequency (Hz)' },
+                { key: 't_htsnk_degc', label: 'Temp (°C)' },
+                { key: 'DESCR',        label: 'Model' },
+                { key: 'MOD_SN',       label: 'Module S/N' },
+            ];
+            curatedFields.forEach(({ key, label }) => {
+                if (powerInfo[key] !== undefined && powerInfo[key] !== null && powerInfo[key] !== '') {
+                    powerHtml += `<p><span class="label">${label}:</span> ${powerInfo[key]}</p>`;
+                }
+            });
+            // Fallback: show all fields if none of the curated ones matched
+            if (!powerHtml && Object.keys(powerInfo).length > 0) {
+                Object.entries(powerInfo).forEach(([key, val]) => {
+                    powerHtml += `<p><span class="label">${key}:</span> ${val}</p>`;
+                });
+            }
         }
 
         tooltip.innerHTML = `
@@ -679,7 +686,7 @@ class SolarPanelMonitor {
             <p><span class="label">Power:</span> ${power.toFixed(1)} W</p>
             ${efficiencyHtml}
             <p><span class="label">Serial:</span> ${panel.serialNumber || panel.inverterSerialNumber || '—'}</p>
-            <p><span class="label">Rotation:</span> ${panel.planeRotation || 0}°</p>
+            ${this.detailedMode ? `<p><span class="label">Rotation:</span> ${panel.planeRotation || 0}°</p>` : ''}
             ${powerHtml}
         `;
 
