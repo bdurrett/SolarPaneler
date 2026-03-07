@@ -4,6 +4,8 @@ showing power production and panel details for each.
 
 Detailed post at [Self Hosting PV6 Monitoring (software included!)](https://brett.durrett.net/self-hosting-pv6-monitoring-software-included/)
 
+![Basic Layout](screenshots/basic-layout.png)
+
 ## Requirements
 
 You need to get network connectivity to your PV6 (see blog post above for tips).
