@@ -143,6 +143,95 @@ button:active {
     font-size: 0.9rem;
 }
 
+/* Settings dialog */
+dialog {
+    background: #2a2a2a;
+    border: 1px solid #4ade80;
+    border-radius: 8px;
+    padding: 0;
+    color: #e0e0e0;
+    min-width: 340px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    margin: 0;
+}
+
+dialog::backdrop {
+    background: rgba(0, 0, 0, 0.55);
+}
+
+.dialog-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 1rem 1.25rem 0.75rem;
+    border-bottom: 1px solid #444;
+}
+
+.dialog-header h2 {
+    font-size: 1rem;
+    color: #4ade80;
+    font-weight: 600;
+}
+
+.dialog-close {
+    background: none;
+    border: none;
+    color: #9ca3af;
+    font-size: 1.4rem;
+    line-height: 1;
+    cursor: pointer;
+    padding: 0 0.25rem;
+    font-weight: 400;
+}
+
+.dialog-close:hover {
+    background: none;
+    color: #e0e0e0;
+}
+
+.dialog-body {
+    padding: 1rem 1.25rem 1.25rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.85rem;
+}
+
+.setting-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 1rem;
+}
+
+.setting-row > label:first-child {
+    color: #9ca3af;
+    font-size: 0.9rem;
+}
+
+.setting-row input[type="number"] {
+    background: #3a3a3a;
+    border: 1px solid #555;
+    color: #e0e0e0;
+    padding: 0.4rem 0.5rem;
+    border-radius: 4px;
+    width: 70px;
+    text-align: right;
+}
+
+.setting-row input[type="number"]:focus {
+    outline: none;
+    border-color: #4ade80;
+}
+
+.setting-row button {
+    padding: 0.4rem 0.85rem;
+    font-size: 0.85rem;
+}
+
 /* Night mode banner */
 .night-mode-banner {
     background: #1e293b;

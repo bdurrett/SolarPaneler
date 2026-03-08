@@ -377,6 +377,9 @@ class SolarPanelMonitor {
         const refreshIntervalInput = document.getElementById('refreshInterval');
         const exportLayoutBtn = document.getElementById('exportLayout');
         const diagnosticsBtn = document.getElementById('diagnostics');
+        const settingsBtn = document.getElementById('settingsBtn');
+        const settingsDialog = document.getElementById('settingsDialog');
+        const settingsClose = document.getElementById('settingsClose');
         const editPlacementCheckbox = document.getElementById('editPlacement');
         const detailedModeToggle = document.getElementById('detailedMode');
         const fitAllBtn = document.getElementById('fitAll');
@@ -391,6 +394,12 @@ class SolarPanelMonitor {
 
         if (exportLayoutBtn) exportLayoutBtn.addEventListener('click', () => this.exportPanelLayout());
         if (diagnosticsBtn) diagnosticsBtn.addEventListener('click', () => openDiagnosticWindow(CONFIG.apiBaseUrl + '/cgi-bin'));
+        if (settingsBtn) settingsBtn.addEventListener('click', () => settingsDialog.showModal());
+        if (settingsClose) settingsClose.addEventListener('click', () => settingsDialog.close());
+        // Close dialog when clicking the backdrop
+        if (settingsDialog) settingsDialog.addEventListener('click', (e) => {
+            if (e.target === settingsDialog) settingsDialog.close();
+        });
         if (fitAllBtn) fitAllBtn.addEventListener('click', () => this.fitAllPanels());
         if (detailedModeToggle) detailedModeToggle.addEventListener('change', (e) => {
             this.detailedMode = e.target.checked;

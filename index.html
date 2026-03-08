@@ -11,25 +11,45 @@
         <header>
             <h1>PVS6 Solar Panel Monitor</h1>
             <div class="controls">
-                <label for="refreshInterval">
-                    Refresh (min):
-                    <input type="number" id="refreshInterval" min="1" value="5" />
-                </label>
                 <button id="refreshNow">Refresh Now</button>
                 <button id="fitAll">Fit All</button>
                 <button id="diagnostics">Diagnostics</button>
-                <button id="exportLayout">Export Layout</button>
-                <label for="detailedMode" class="toggle-label">
-                    <input type="checkbox" id="detailedMode" role="switch" />
-                    <span class="toggle-track"><span class="toggle-thumb"></span></span>
-                    Detailed
-                </label>
-                <label for="editPlacement" class="checkbox-label">
-                    <input type="checkbox" id="editPlacement" />
-                    Edit placement
-                </label>
+                <button id="settingsBtn">Settings</button>
             </div>
         </header>
+
+        <!-- Settings dialog -->
+        <dialog id="settingsDialog">
+            <div class="dialog-header">
+                <h2>Settings</h2>
+                <button class="dialog-close" id="settingsClose" aria-label="Close">&times;</button>
+            </div>
+            <div class="dialog-body">
+                <div class="setting-row">
+                    <label for="refreshInterval">Refresh interval (minutes)</label>
+                    <input type="number" id="refreshInterval" min="1" value="5" />
+                </div>
+                <div class="setting-row">
+                    <label for="detailedMode">Detailed hover tooltip</label>
+                    <label class="toggle-label">
+                        <input type="checkbox" id="detailedMode" role="switch" />
+                        <span class="toggle-track"><span class="toggle-thumb"></span></span>
+                    </label>
+                </div>
+                <div class="setting-row">
+                    <label for="editPlacement">Edit panel placement</label>
+                    <label class="toggle-label">
+                        <input type="checkbox" id="editPlacement" role="switch" />
+                        <span class="toggle-track"><span class="toggle-thumb"></span></span>
+                    </label>
+                </div>
+                <div class="setting-row">
+                    <label>Export panel layout</label>
+                    <button id="exportLayout">Export Layout</button>
+                </div>
+            </div>
+        </dialog>
+
         <div id="nightModeBanner" class="night-mode-banner hidden">
             All panels offline — no power detected (nighttime or grid disconnected)
         </div>
