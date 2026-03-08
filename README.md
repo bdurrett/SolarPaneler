@@ -1,14 +1,14 @@
 # SolarPaneler
-Render PV6 Solar Panel in your browser, automatically finding the placement of your panels and
+Render PVS6 Solar Panel in your browser, automatically finding the placement of your panels and
 showing power production and panel details for each.
 
-Detailed post at [Self Hosting PV6 Monitoring (software included!)](https://brett.durrett.net/self-hosting-pv6-monitoring-software-included/)
+Detailed post at [Self Hosting PVS6 Monitoring (software included!)](https://brett.durrett.net/self-hosting-pv6-monitoring-software-included/)
 
 ![Basic Layout](screenshots/basic-layout.png)
 
 ## Requirements
 
-You need to get network connectivity to your PV6 (see blog post above for tips).
+You need to get network connectivity to your PVS6 (see blog post above for tips).
 
 I don't have a full list of software versions supported, but 2025.06, Build 61839 works.
 
@@ -32,10 +32,10 @@ Just load index.html into a browser... no server needed!
 
 ## Panel Layout Export/Import
 
-Upon page load, the panel layout will be determined using the `getPanelsLayout` operation from the PV6. This is supposed to
+Upon page load, the panel layout will be determined using the `getPanelsLayout` operation from the PVS6. This is supposed to
 get the layout data from `The panels layout, from EDP with fallback to the one stored on the PVS` but I have found this
-fallback time to be infinite, so you will likely need to allow the PV6 to access the Internet to get your initial panel 
-layout, which you can then export so the PV6 will not require future access to the Internet. 
+fallback time to be infinite, so you will likely need to allow the PVS6 to access the Internet to get your initial panel 
+layout, which you can then export so the PVS6 will not require future access to the Internet. 
 
 You can export the panel layout (including any manual position adjustments) and use it locally instead of fetching from the API.
 This will make the initial page load faster and provides a solution for layouts being inaccurate or inaccessible.

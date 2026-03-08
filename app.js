@@ -376,6 +376,7 @@ class SolarPanelMonitor {
         const refreshNowBtn = document.getElementById('refreshNow');
         const refreshIntervalInput = document.getElementById('refreshInterval');
         const exportLayoutBtn = document.getElementById('exportLayout');
+        const diagnosticsBtn = document.getElementById('diagnostics');
         const editPlacementCheckbox = document.getElementById('editPlacement');
         const detailedModeToggle = document.getElementById('detailedMode');
         const fitAllBtn = document.getElementById('fitAll');
@@ -389,6 +390,7 @@ class SolarPanelMonitor {
         });
 
         if (exportLayoutBtn) exportLayoutBtn.addEventListener('click', () => this.exportPanelLayout());
+        if (diagnosticsBtn) diagnosticsBtn.addEventListener('click', () => openDiagnosticWindow(CONFIG.apiBaseUrl + '/cgi-bin'));
         if (fitAllBtn) fitAllBtn.addEventListener('click', () => this.fitAllPanels());
         if (detailedModeToggle) detailedModeToggle.addEventListener('change', (e) => {
             this.detailedMode = e.target.checked;

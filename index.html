@@ -3,13 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>PV6 Solar Panel Monitor</title>
+    <title>PVS6 Solar Panel Monitor</title>
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
     <div class="container">
         <header>
-            <h1>PV6 Solar Panel Monitor</h1>
+            <h1>PVS6 Solar Panel Monitor</h1>
             <div class="controls">
                 <label for="refreshInterval">
                     Refresh (min):
@@ -17,6 +17,7 @@
                 </label>
                 <button id="refreshNow">Refresh Now</button>
                 <button id="fitAll">Fit All</button>
+                <button id="diagnostics">Diagnostics</button>
                 <button id="exportLayout">Export Layout</button>
                 <label for="detailedMode" class="toggle-label">
                     <input type="checkbox" id="detailedMode" role="switch" />
@@ -76,6 +77,7 @@
         <div id="tooltip" class="tooltip hidden"></div>
     </div>
     <script src="config.js"></script>
+    <script src="diagnostic.js"></script>
     <script src="app.js"></script>
 </body>
 </html>
