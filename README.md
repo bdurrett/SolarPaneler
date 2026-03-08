@@ -1,6 +1,8 @@
 # SolarPaneler
-Render PVS6 Solar Panel in your browser, automatically finding the placement of your panels and
-showing power production and panel details for each.
+
+Render SunPower PVS6 Solar Panels in your browser, automatically finding the placement of your panels and
+showing power production and panel details for each. Includes handy access to detailed diagnostics of
+your PVS6 system.
 
 Detailed post at [Self Hosting PVS6 Monitoring (software included!)](https://brett.durrett.net/self-hosting-pv6-monitoring-software-included/)
 
@@ -8,9 +10,11 @@ Detailed post at [Self Hosting PVS6 Monitoring (software included!)](https://bre
 
 ## Requirements
 
-You need to get network connectivity to your PVS6 (see blog post above for tips).
+You need to get network connectivity to your PVS6 (see blog post above for tips). The current version of
+this app makes the calls to the PVS6 directly from the web browser (no server is needed at all), and that
+means the device running the browser must be able to reach the PVS6 on the network).
 
-I don't have a full list of software versions supported, but 2025.06, Build 61839 works.
+I don't have a full list of PVS6 firmware versions supported, but (at very least) 2025.06, Build 61839 works.
 
 ## Setup
 
@@ -88,6 +92,17 @@ const CONFIG = {
 - Custom panel arrangements
 - Faster loading times
 - Preserving manual position adjustments
+
+## Diagnostics
+The diagnostics button pops-up a seoarate window with a lot of setails of your system (currently reading
+34 endpoints) for things like accessPoints, device details, software versions, network interfaces, etc. If 
+any diagnostic doesn't update, it may require PV6 Internet access and you may need to (at least temporarily)
+unblock any firewall (for example, panel layout appears to require Internet access).
+
+![Diagnostics](screenshots/diagnostics.png)
+
+
+
 
 
 
