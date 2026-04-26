@@ -1,0 +1,4 @@
+pvs_config.php
+config.js
+cache/*.json
+cache/*.txt

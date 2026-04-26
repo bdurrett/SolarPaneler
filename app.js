@@ -25,8 +25,7 @@ class SolarPanelMonitor {
         this.baseCanvasWidth = 800;
         this.baseCanvasHeight = 600;
 
-        // Grid snap in SVG units (0 to disable, configurable via CONFIG.gridSize)
-        this.gridSize = (typeof CONFIG !== 'undefined' && CONFIG.gridSize != null) ? CONFIG.gridSize : 10;
+        this.gridSize = 10;
 
         this.init();
     }
@@ -39,12 +38,14 @@ class SolarPanelMonitor {
         this.setupEventListeners();
         const input = document.getElementById('refreshInterval');
         if (input) input.value = this.refreshIntervalMinutes;
-        await this.loadPanelLayout();
+        // Load power data first so inverter serials are available
+        // if we need to auto-generate panels from them
         await this.loadPowerData();
+        await this.loadPanelLayout();
         this.startAutoRefresh();
     }
 
-    // Deduplicated helper: look up power data for a panel
+    // Look up power data for a panel by any of its identifier fields
     getPanelPowerInfo(panel) {
         return this.powerData[panel.id] ||
                this.powerData[panel.serialNumber] ||
@@ -95,7 +96,6 @@ class SolarPanelMonitor {
 
         this.panX = minX - pad;
         this.panY = minY - pad;
-        // Pick zoom so all content fits; use both dimensions and take the smaller
         const zoomByWidth = this.baseCanvasWidth / contentW;
         const zoomByHeight = this.baseCanvasHeight / contentH;
         this.zoom = Math.min(zoomByWidth, zoomByHeight, 3);
@@ -106,74 +106,55 @@ class SolarPanelMonitor {
     async loadPanelLayout() {
         try {
             console.log('Loading panel layout...');
+            const response = await fetch('api.php?action=layout');
+            if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
 
-            if (CONFIG.localLayout && Array.isArray(CONFIG.localLayout) && CONFIG.localLayout.length > 0) {
-                console.log('Using local panel layout from config');
-                this.panels = CONFIG.localLayout.map((panel, index) => ({
+            const data = await response.json();
+            if (data.error) throw new Error(data.error);
+
+            let panelsArray = [];
+            if (Array.isArray(data.panels)) panelsArray = data.panels;
+            else if (Array.isArray(data)) panelsArray = data;
+            else if (data.result && Array.isArray(data.result.panels)) panelsArray = data.result.panels;
+
+            console.log(`Found ${panelsArray.length} panels`);
+
+            const allYCoords = panelsArray.map(p => p.yCoordinate || p.y || 0);
+            const minY = Math.min(...allYCoords);
+            const yOffset = minY < 0 ? Math.abs(minY) + 50 : 50;
+
+            this.panels = panelsArray.map((panel, index) => {
+                const x = panel.xCoordinate || panel.x || (index % 10) * 120 + 50;
+                const y = (panel.yCoordinate || panel.y || Math.floor(index / 10) * 120 + 50) + yOffset;
+                const rotation = (panel.planeRotation || 0) % 360;
+                const baseWidth = panel.width || 80;
+                const baseHeight = panel.height || 120;
+
+                let width, height;
+                if (rotation === 0 || rotation === 180) {
+                    width = baseWidth; height = baseHeight;
+                } else if (rotation === 90 || rotation === 270) {
+                    width = baseHeight; height = baseWidth;
+                } else {
+                    const maxDim = Math.max(baseWidth, baseHeight);
+                    width = maxDim; height = maxDim;
+                }
+
+                return {
                     ...panel,
-                    id: panel.id || panel.inverterSerialNumber || `panel-${index}`,
-                    serialNumber: panel.serialNumber || panel.inverterSerialNumber,
+                    x, y, width, height,
+                    id: panel.inverterSerialNumber || panel.id || panel.ID || `panel-${index}`,
+                    serialNumber: panel.inverterSerialNumber || panel.serialNumber || panel.SerialNumber,
                     inverterSerialNumber: panel.inverterSerialNumber,
-                    x: panel.x || 0,
-                    y: panel.y || 0,
-                    width: panel.width || 80,
-                    height: panel.height || 120,
-                    planeRotation: panel.planeRotation || 0
-                }));
-                console.log(`Loaded ${this.panels.length} panels from local layout`);
-            } else {
-                const url = CONFIG.apiBaseUrl + CONFIG.panelLayoutEndpoint;
-                const response = await fetch(url);
-                if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+                    planeRotation: rotation
+                };
+            });
 
-                const data = await response.json();
-                console.log('Panel layout data received');
-
-                let panelsArray = [];
-                if (data.result && data.result.panels) panelsArray = data.result.panels;
-                else if (Array.isArray(data)) panelsArray = data;
-                else if (data.panels) panelsArray = data.panels;
-                else if (data.Panels) panelsArray = data.Panels;
-
-                console.log(`Found ${panelsArray.length} panels`);
-
-                const allYCoords = panelsArray.map(p => p.yCoordinate || p.y || 0);
-                const minY = Math.min(...allYCoords);
-                const yOffset = minY < 0 ? Math.abs(minY) + 50 : 50;
-
-                this.panels = panelsArray.map((panel, index) => {
-                    const x = panel.xCoordinate || panel.x || (index % 10) * 120 + 50;
-                    const y = (panel.yCoordinate || panel.y || Math.floor(index / 10) * 120 + 50) + yOffset;
-                    const rotation = (panel.planeRotation || 0) % 360;
-                    const baseWidth = panel.width || 80;
-                    const baseHeight = panel.height || 120;
-
-                    let width, height;
-                    if (rotation === 0 || rotation === 180) {
-                        width = baseWidth; height = baseHeight;
-                    } else if (rotation === 90 || rotation === 270) {
-                        width = baseHeight; height = baseWidth;
-                    } else {
-                        const maxDim = Math.max(baseWidth, baseHeight);
-                        width = maxDim; height = maxDim;
-                    }
-
-                    return {
-                        ...panel,
-                        x, y, width, height,
-                        id: panel.inverterSerialNumber || panel.id || panel.ID || `panel-${index}`,
-                        serialNumber: panel.inverterSerialNumber || panel.serialNumber || panel.SerialNumber,
-                        inverterSerialNumber: panel.inverterSerialNumber,
-                        planeRotation: rotation
-                    };
-                });
-
-                console.log('Processed panels:', this.panels.length);
-            }
+            console.log('Processed panels:', this.panels.length);
 
             if (this.panels.length === 0) {
-                console.warn('No panels found, creating default panels');
-                this.createDefaultPanels();
+                console.warn('No saved layout — auto-generating panels from inverter list');
+                this.autoCreatePanelsFromInverters();
             }
 
             this.resolveOverlaps();
@@ -185,7 +166,7 @@ class SolarPanelMonitor {
         } catch (error) {
             console.error('Error loading panel layout:', error);
             this.updateStatus(`Error loading panel layout: ${error.message}`);
-            this.createDefaultPanels();
+            this.autoCreatePanelsFromInverters();
             this.resolveOverlaps();
             this.updateSummary();
             if (this.maxPower === 0) this.maxPower = 400;
@@ -196,31 +177,52 @@ class SolarPanelMonitor {
 
     createDefaultPanels() {
         this.panels = [];
-        const baseWidth = 80;
-        const baseHeight = 120;
-        const spacingX = 20;
-        const spacingY = 20;
-        const cols = 4;
-
+        const baseWidth = 80, baseHeight = 120, spacingX = 20, spacingY = 20, cols = 4;
         for (let i = 0; i < 12; i++) {
             const col = i % cols;
             const row = Math.floor(i / cols);
             const rotation = (i % 2 === 0) ? 0 : 90;
-            let width, height;
-            if (rotation === 0 || rotation === 180) {
-                width = baseWidth; height = baseHeight;
-            } else {
-                width = baseHeight; height = baseWidth;
-            }
+            const width  = (rotation === 0 || rotation === 180) ? baseWidth  : baseHeight;
+            const height = (rotation === 0 || rotation === 180) ? baseHeight : baseWidth;
             this.panels.push({
-                id: `panel-${i}`,
-                serialNumber: `SN-${i}`,
+                id: `panel-${i}`, serialNumber: `SN-${i}`,
                 x: 50 + col * (Math.max(width, baseHeight) + spacingX),
                 y: 50 + row * (Math.max(height, baseHeight) + spacingY),
-                width, height,
-                planeRotation: rotation
+                width, height, planeRotation: rotation
             });
         }
+    }
+
+    // Build a panel grid from discovered inverters when no saved layout exists.
+    // Each panel gets the inverter serial number so power data matches immediately.
+    autoCreatePanelsFromInverters() {
+        // Deduplicate by serial (powerData has both original and lowercase keys)
+        const seen = new Set();
+        const inverters = Object.values(this.powerData).filter(inv => {
+            if (seen.has(inv.serial)) return false;
+            seen.add(inv.serial);
+            return true;
+        }).sort((a, b) => a.serial.localeCompare(b.serial));
+
+        if (inverters.length === 0) {
+            console.warn('No inverters found either — using placeholder panels');
+            this.createDefaultPanels();
+            return;
+        }
+
+        const baseWidth = 80, baseHeight = 120, spacingX = 20, spacingY = 20;
+        const cols = Math.ceil(Math.sqrt(inverters.length));
+        this.panels = inverters.map((inv, i) => ({
+            id: inv.serial,
+            serialNumber: inv.serial,
+            inverterSerialNumber: inv.serial,
+            x: 50 + (i % cols) * (baseWidth + spacingX),
+            y: 50 + Math.floor(i / cols) * (baseHeight + spacingY),
+            width: baseWidth,
+            height: baseHeight,
+            planeRotation: 0,
+        }));
+        console.log(`Auto-created ${this.panels.length} panels from inverter list`);
     }
 
     panelsOverlap(panel1, panel2) {
@@ -246,7 +248,6 @@ class SolarPanelMonitor {
                     if (this.panelsOverlap(p1, p2)) {
                         const ox = Math.min(p1.x + p1.width - p2.x, p2.x + p2.width - p1.x);
                         const oy = Math.min(p1.y + p1.height - p2.y, p2.y + p2.height - p1.y);
-                        const move = (ox < oy ? ox : oy + 0) / 2 + padding / 2;
                         if (ox < oy) {
                             if (p1.x < p2.x) { p1.x = Math.max(0, p1.x - (ox + padding) / 2); p2.x += (ox + padding) / 2; }
                             else { p2.x = Math.max(0, p2.x - (ox + padding) / 2); p1.x += (ox + padding) / 2; }
@@ -266,35 +267,26 @@ class SolarPanelMonitor {
     async loadPowerData() {
         try {
             console.log('Loading power data...');
-            const url = CONFIG.apiBaseUrl + CONFIG.powerDataEndpoint;
-            const response = await fetch(url);
+            const response = await fetch('api.php?action=power');
             if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
 
             const data = await response.json();
+            if (data.error) throw new Error(data.error);
+
             this.powerData = {};
             this.maxPower = 0;
 
-            const devices = Array.isArray(data) ? data : (data.devices || data.DeviceList || data.Devices || []);
-            console.log(`Found ${devices.length} total devices`);
+            const inverters = data.inverters || {};
+            console.log(`Found ${Object.keys(inverters).length} inverters`);
 
-            const inverters = devices.filter(device =>
-                device.DEVICE_TYPE === "Inverter" ||
-                device.TYPE === "SOLARBRIDGE" ||
-                (device.DESCR && device.DESCR.includes("Inverter"))
-            );
-            console.log(`Found ${inverters.length} inverters`);
-
-            inverters.forEach(device => {
-                const serial = device.SERIAL || device.serialNumber || device.SerialNumber ||
-                               device.inverterSerialNumber || device.InverterSerialNumber ||
-                               device.id || device.ID;
-                if (serial) {
-                    this.powerData[serial] = device;
-                    if (serial !== serial.toLowerCase()) this.powerData[serial.toLowerCase()] = device;
-                    const power = this.getPowerValue(device);
-                    if (power > this.maxPower) this.maxPower = power;
-                    this.log(`Stored power data for ${serial}: ${power}W`);
+            Object.entries(inverters).forEach(([serial, inv]) => {
+                this.powerData[serial] = inv;
+                // Also index by lowercase serial for case-insensitive lookup
+                if (serial !== serial.toLowerCase()) {
+                    this.powerData[serial.toLowerCase()] = inv;
                 }
+                if (inv.power_w > this.maxPower) this.maxPower = inv.power_w;
+                this.log(`Stored power data for ${serial}: ${inv.power_w}W`);
             });
 
             if (this.maxPower === 0) {
@@ -328,11 +320,11 @@ class SolarPanelMonitor {
 
         const avgPower = activePanels > 0 ? totalPower / activePanels : 0;
 
-        const totalPowerEl = document.getElementById('totalPower');
+        const totalPowerEl   = document.getElementById('totalPower');
         const activePanelsEl = document.getElementById('activePanels');
-        const totalPanelsEl = document.getElementById('totalPanels');
-        const avgPowerEl = document.getElementById('avgPower');
-        const lastUpdatedEl = document.getElementById('lastUpdated');
+        const totalPanelsEl  = document.getElementById('totalPanels');
+        const avgPowerEl     = document.getElementById('avgPower');
+        const lastUpdatedEl  = document.getElementById('lastUpdated');
 
         if (totalPowerEl) {
             totalPowerEl.textContent = totalPower >= 1000
@@ -340,9 +332,9 @@ class SolarPanelMonitor {
                 : `${totalPower.toFixed(1)} W`;
         }
         if (activePanelsEl) activePanelsEl.textContent = activePanels.toString();
-        if (totalPanelsEl) totalPanelsEl.textContent = this.panels.length.toString();
-        if (avgPowerEl) avgPowerEl.textContent = activePanels > 0 ? `${avgPower.toFixed(1)} W` : '—';
-        if (lastUpdatedEl) lastUpdatedEl.textContent = new Date().toLocaleTimeString();
+        if (totalPanelsEl)  totalPanelsEl.textContent  = this.panels.length.toString();
+        if (avgPowerEl)     avgPowerEl.textContent      = activePanels > 0 ? `${avgPower.toFixed(1)} W` : '—';
+        if (lastUpdatedEl)  lastUpdatedEl.textContent   = new Date().toLocaleTimeString();
 
         this.showNightModeIndicator(this.panels.length > 0 && totalPower === 0);
     }
@@ -354,35 +346,25 @@ class SolarPanelMonitor {
 
     getPowerValue(device) {
         if (!device || typeof device !== 'object') return 0;
-
-        if (device.p_3phsum_kw !== undefined && device.p_3phsum_kw !== null && device.p_3phsum_kw !== '') {
-            const value = parseFloat(String(device.p_3phsum_kw));
-            if (!isNaN(value)) return value * 1000;
-        }
-        if (device.p_3phsum_kW !== undefined && device.p_3phsum_kW !== null && device.p_3phsum_kW !== '') {
-            const value = parseFloat(String(device.p_3phsum_kW));
-            if (!isNaN(value)) return value * 1000;
-        }
-
-        const fallbackValue = device.power || device.Power || device.powerWatts || device.PowerWatts ||
-               device.currentPower || device.CurrentPower ||
-               device.instantPower || device.InstantPower || 0;
-        const fallback = parseFloat(String(fallbackValue));
-        return isNaN(fallback) ? 0 : fallback;
+        // New varserver format
+        if (device.power_w !== undefined) return device.power_w;
+        if (device.power_kw !== undefined) return device.power_kw * 1000;
+        return 0;
     }
 
     setupEventListeners() {
         const canvas = document.getElementById('panelCanvas');
-        const refreshNowBtn = document.getElementById('refreshNow');
+        const refreshNowBtn        = document.getElementById('refreshNow');
         const refreshIntervalInput = document.getElementById('refreshInterval');
-        const exportLayoutBtn = document.getElementById('exportLayout');
-        const diagnosticsBtn = document.getElementById('diagnostics');
-        const settingsBtn = document.getElementById('settingsBtn');
-        const settingsDialog = document.getElementById('settingsDialog');
-        const settingsClose = document.getElementById('settingsClose');
+        const exportLayoutBtn      = document.getElementById('exportLayout');
+        const saveLayoutBtn        = document.getElementById('saveLayout');
+        const diagnosticsBtn       = document.getElementById('diagnostics');
+        const settingsBtn          = document.getElementById('settingsBtn');
+        const settingsDialog       = document.getElementById('settingsDialog');
+        const settingsClose        = document.getElementById('settingsClose');
         const editPlacementCheckbox = document.getElementById('editPlacement');
-        const detailedModeToggle = document.getElementById('detailedMode');
-        const fitAllBtn = document.getElementById('fitAll');
+        const detailedModeToggle   = document.getElementById('detailedMode');
+        const fitAllBtn            = document.getElementById('fitAll');
 
         refreshNowBtn.addEventListener('click', () => this.loadPowerData());
 
@@ -393,14 +375,14 @@ class SolarPanelMonitor {
         });
 
         if (exportLayoutBtn) exportLayoutBtn.addEventListener('click', () => this.exportPanelLayout());
-        if (diagnosticsBtn) diagnosticsBtn.addEventListener('click', () => openDiagnosticWindow(CONFIG.apiBaseUrl + '/cgi-bin'));
-        if (settingsBtn) settingsBtn.addEventListener('click', () => settingsDialog.showModal());
-        if (settingsClose) settingsClose.addEventListener('click', () => settingsDialog.close());
-        // Close dialog when clicking the backdrop
-        if (settingsDialog) settingsDialog.addEventListener('click', (e) => {
+        if (saveLayoutBtn)   saveLayoutBtn.addEventListener('click',   () => this.saveLayoutToServer());
+        if (diagnosticsBtn)  diagnosticsBtn.addEventListener('click',  () => openDiagnosticWindow());
+        if (settingsBtn)     settingsBtn.addEventListener('click', () => settingsDialog.showModal());
+        if (settingsClose)   settingsClose.addEventListener('click', () => settingsDialog.close());
+        if (settingsDialog)  settingsDialog.addEventListener('click', (e) => {
             if (e.target === settingsDialog) settingsDialog.close();
         });
-        if (fitAllBtn) fitAllBtn.addEventListener('click', () => this.fitAllPanels());
+        if (fitAllBtn)       fitAllBtn.addEventListener('click', () => this.fitAllPanels());
         if (detailedModeToggle) detailedModeToggle.addEventListener('change', (e) => {
             this.detailedMode = e.target.checked;
         });
@@ -421,9 +403,9 @@ class SolarPanelMonitor {
         });
 
         // Mouse events
-        canvas.addEventListener('mousedown', (e) => this.handleMouseDown(e));
-        canvas.addEventListener('mousemove', (e) => this.handleMouseMove(e));
-        canvas.addEventListener('mouseup', (e) => this.handleMouseUp(e));
+        canvas.addEventListener('mousedown',  (e) => this.handleMouseDown(e));
+        canvas.addEventListener('mousemove',  (e) => this.handleMouseMove(e));
+        canvas.addEventListener('mouseup',    (e) => this.handleMouseUp(e));
         canvas.addEventListener('mouseleave', (e) => this.handleMouseUp(e));
 
         // Zoom via scroll wheel
@@ -434,10 +416,10 @@ class SolarPanelMonitor {
             if (!this.isDragging && !this.isPanning) this.updateTooltip(e);
         });
 
-        // Touch events (maps to panel drag in edit mode)
-        canvas.addEventListener('touchstart', (e) => this.handleTouchStart(e), { passive: false });
-        canvas.addEventListener('touchmove', (e) => this.handleTouchMove(e), { passive: false });
-        canvas.addEventListener('touchend', () => this.handleMouseUp({}));
+        // Touch events
+        canvas.addEventListener('touchstart',  (e) => this.handleTouchStart(e), { passive: false });
+        canvas.addEventListener('touchmove',   (e) => this.handleTouchMove(e),  { passive: false });
+        canvas.addEventListener('touchend',    () => this.handleMouseUp({}));
         canvas.addEventListener('touchcancel', () => this.handleMouseUp({}));
     }
 
@@ -451,12 +433,11 @@ class SolarPanelMonitor {
         const mx = e.clientX - rect.left;
         const my = e.clientY - rect.top;
 
-        // Keep the SVG point under the cursor fixed while zooming
-        const svgX = this.panX + (mx / rect.width) * (this.baseCanvasWidth / this.zoom);
+        const svgX = this.panX + (mx / rect.width)  * (this.baseCanvasWidth  / this.zoom);
         const svgY = this.panY + (my / rect.height) * (this.baseCanvasHeight / this.zoom);
 
         this.zoom = newZoom;
-        this.panX = svgX - (mx / rect.width) * (this.baseCanvasWidth / this.zoom);
+        this.panX = svgX - (mx / rect.width)  * (this.baseCanvasWidth  / this.zoom);
         this.panY = svgY - (my / rect.height) * (this.baseCanvasHeight / this.zoom);
 
         this.updateViewBox();
@@ -478,7 +459,6 @@ class SolarPanelMonitor {
     }
 
     handleMouseDown(e) {
-        // Middle mouse button: start panning
         if (e.button === 1) {
             this.isPanning = true;
             this.panStartScreen = { x: e.clientX, y: e.clientY };
@@ -491,7 +471,6 @@ class SolarPanelMonitor {
 
         const svgCoords = this.screenToSVG(e.clientX, e.clientY);
 
-        // Find panel via DOM hit test first
         let panel = null;
         const elementAtPoint = document.elementFromPoint(e.clientX, e.clientY);
         if (elementAtPoint) {
@@ -508,7 +487,6 @@ class SolarPanelMonitor {
             }
         }
 
-        // Fallback: coordinate-based detection
         if (!panel) {
             panel = this.panels.find(p =>
                 svgCoords.x >= p.x && svgCoords.x <= p.x + p.width &&
@@ -528,14 +506,12 @@ class SolarPanelMonitor {
     }
 
     handleMouseMove(e) {
-        // Panning
         if (this.isPanning) {
             const canvas = document.getElementById('panelCanvas');
             const rect = canvas.getBoundingClientRect();
             const dx = e.clientX - this.panStartScreen.x;
             const dy = e.clientY - this.panStartScreen.y;
-            // Convert screen delta to SVG units
-            const svgDx = (dx / rect.width) * (this.baseCanvasWidth / this.zoom);
+            const svgDx = (dx / rect.width)  * (this.baseCanvasWidth  / this.zoom);
             const svgDy = (dy / rect.height) * (this.baseCanvasHeight / this.zoom);
             this.panX = this.panStartValues.x - svgDx;
             this.panY = this.panStartValues.y - svgDy;
@@ -553,7 +529,6 @@ class SolarPanelMonitor {
             let x = this.snapToGrid(Math.max(0, svgCoords.x - this.dragOffset.x));
             let y = this.snapToGrid(Math.max(0, svgCoords.y - this.dragOffset.y));
 
-            // Prevent overlap with other panels
             const padding = 5;
             for (const panel of this.panels) {
                 if (panel !== this.dragPanel && this.panelsOverlap(
@@ -606,7 +581,6 @@ class SolarPanelMonitor {
 
         let panel = null;
 
-        // DOM hit test: walk up tree to find a panel element
         const elementAtPoint = document.elementFromPoint(e.clientX, e.clientY);
         let el = elementAtPoint;
         while (el && el !== canvas) {
@@ -620,7 +594,6 @@ class SolarPanelMonitor {
             el = el.parentElement || el.parentNode;
         }
 
-        // Fallback: SVG coordinate-based detection
         if (!panel) {
             const svgCoords = this.screenToSVG(e.clientX, e.clientY);
             panel = this.panels.find(p =>
@@ -651,7 +624,6 @@ class SolarPanelMonitor {
         const power = this.getPowerValue(powerInfo);
         const displayName = panel.label || panel.id || panel.serialNumber || 'Unknown';
 
-        // Efficiency if ratedWatts is configured on the panel
         let efficiencyHtml = '';
         if (panel.ratedWatts && panel.ratedWatts > 0) {
             const pct = ((power / panel.ratedWatts) * 100).toFixed(1);
@@ -661,35 +633,29 @@ class SolarPanelMonitor {
         let powerHtml = '';
 
         if (this.detailedMode) {
-            // Show every field from the API device object
             Object.entries(powerInfo).forEach(([key, val]) => {
-                powerHtml += `<p><span class="label">${key}:</span> ${val}</p>`;
-            });
-        } else {
-            // Show only curated, human-readable fields
-            const curatedFields = [
-                { key: 'p_3phsum_kw',  label: 'AC Power (kW)' },
-                { key: 'p_3phsum_kW',  label: 'AC Power (kW)' },
-                { key: 'v_ac',         label: 'AC Voltage (V)' },
-                { key: 'v_dc',         label: 'DC Voltage (V)' },
-                { key: 'i_ac',         label: 'AC Current (A)' },
-                { key: 'i_dc',         label: 'DC Current (A)' },
-                { key: 'freq',         label: 'Frequency (Hz)' },
-                { key: 't_htsnk_degc', label: 'Temp (°C)' },
-                { key: 'DESCR',        label: 'Model' },
-                { key: 'MOD_SN',       label: 'Module S/N' },
-            ];
-            curatedFields.forEach(({ key, label }) => {
-                if (powerInfo[key] !== undefined && powerInfo[key] !== null && powerInfo[key] !== '') {
-                    powerHtml += `<p><span class="label">${label}:</span> ${powerInfo[key]}</p>`;
+                if (val !== null && val !== undefined && val !== '') {
+                    powerHtml += `<p><span class="label">${key}:</span> ${val}</p>`;
                 }
             });
-            // Fallback: show all fields if none of the curated ones matched
-            if (!powerHtml && Object.keys(powerInfo).length > 0) {
-                Object.entries(powerInfo).forEach(([key, val]) => {
-                    powerHtml += `<p><span class="label">${key}:</span> ${val}</p>`;
-                });
-            }
+        } else {
+            const curatedFields = [
+                { key: 'power_kw',      label: 'AC Power (kW)',     fmt: v => v.toFixed(4) },
+                { key: 'voltage_v',     label: 'AC Voltage (V)',    fmt: v => v.toFixed(1) },
+                { key: 'current_a',     label: 'AC Current (A)',    fmt: v => v.toFixed(3) },
+                { key: 'frequency_hz',  label: 'Frequency (Hz)',    fmt: v => v.toFixed(2) },
+                { key: 'temperature_c', label: 'Temp (°C)',         fmt: v => v.toFixed(1) },
+                { key: 'dc_voltage_v',  label: 'DC Voltage (V)',    fmt: v => v.toFixed(1) },
+                { key: 'dc_current_a',  label: 'DC Current (A)',    fmt: v => v.toFixed(3) },
+                { key: 'lifetime_kwh',  label: 'Lifetime (kWh)',    fmt: v => v.toFixed(1) },
+                { key: 'model',         label: 'Model',             fmt: v => v },
+            ];
+            curatedFields.forEach(({ key, label, fmt }) => {
+                const val = powerInfo[key];
+                if (val !== undefined && val !== null && val !== '') {
+                    powerHtml += `<p><span class="label">${label}:</span> ${fmt(val)}</p>`;
+                }
+            });
         }
 
         tooltip.innerHTML = `
@@ -701,19 +667,18 @@ class SolarPanelMonitor {
             ${powerHtml}
         `;
 
-        // Position tooltip, keeping it within the viewport
         const offset = 10;
         let tx = x + offset;
         let ty = y + offset;
         tooltip.style.left = `${tx}px`;
-        tooltip.style.top = `${ty}px`;
+        tooltip.style.top  = `${ty}px`;
 
         const tr = tooltip.getBoundingClientRect();
-        if (tx + tr.width > window.innerWidth) tx = Math.max(offset, x - tr.width - offset);
+        if (tx + tr.width  > window.innerWidth)  tx = Math.max(offset, x - tr.width  - offset);
         if (ty + tr.height > window.innerHeight) ty = Math.max(offset, y - tr.height - offset);
 
         tooltip.style.left = `${tx}px`;
-        tooltip.style.top = `${ty}px`;
+        tooltip.style.top  = `${ty}px`;
     }
 
     getColorForPower(power) {
@@ -732,13 +697,12 @@ class SolarPanelMonitor {
         canvas.innerHTML = '';
 
         if (this.panels.length === 0) {
-            this.baseCanvasWidth = window.innerWidth;
+            this.baseCanvasWidth  = window.innerWidth;
             this.baseCanvasHeight = window.innerHeight - 100;
             this.updateViewBox();
             return;
         }
 
-        // Calculate the bounding extent of all panels for the coordinate space
         let maxX = 0, maxY = 0;
         this.panels.forEach(panel => {
             if (panel.planeRotation && panel.planeRotation !== 0 && panel.planeRotation !== 180) {
@@ -753,10 +717,9 @@ class SolarPanelMonitor {
             }
         });
 
-        this.baseCanvasWidth = maxX + 50;
+        this.baseCanvasWidth  = maxX + 50;
         this.baseCanvasHeight = maxY + 50;
 
-        // Compute median power of active panels for underperforming detection
         const activePowers = this.panels
             .map(p => this.getPowerValue(this.getPanelPowerInfo(p)))
             .filter(v => v > 0)
@@ -765,15 +728,14 @@ class SolarPanelMonitor {
             ? activePowers[Math.floor(activePowers.length / 2)]
             : 0;
 
-        // Render each panel
         this.panels.forEach(panel => {
             const powerInfo = this.getPanelPowerInfo(panel);
             const power = this.getPowerValue(powerInfo);
             const color = this.getColorForPower(power);
             const isUnderperforming = medianPower > 0 && power > 0 && power < medianPower * 0.5;
 
-            const group = document.createElementNS(svgNS, 'g');
-            const centerX = panel.x + panel.width / 2;
+            const group   = document.createElementNS(svgNS, 'g');
+            const centerX = panel.x + panel.width  / 2;
             const centerY = panel.y + panel.height / 2;
 
             if (panel.planeRotation &&
@@ -785,31 +747,28 @@ class SolarPanelMonitor {
             }
 
             const rect = document.createElementNS(svgNS, 'rect');
-            rect.setAttribute('x', panel.x);
-            rect.setAttribute('y', panel.y);
-            rect.setAttribute('width', panel.width);
+            rect.setAttribute('x',      panel.x);
+            rect.setAttribute('y',      panel.y);
+            rect.setAttribute('width',  panel.width);
             rect.setAttribute('height', panel.height);
-            rect.setAttribute('fill', color);
-            rect.setAttribute('class', isUnderperforming ? 'panel underperforming' : 'panel');
+            rect.setAttribute('fill',   color);
+            rect.setAttribute('class',  isUnderperforming ? 'panel underperforming' : 'panel');
             rect.setAttribute('data-panel-id', panel.id || panel.serialNumber);
             group.appendChild(rect);
 
             const text = document.createElementNS(svgNS, 'text');
-            text.setAttribute('x', centerX);
-            text.setAttribute('y', centerY);
-            text.setAttribute('text-anchor', 'middle');
-            text.setAttribute('dominant-baseline', 'middle');
-            text.setAttribute('class', 'panel-text');
-            // Show custom label if defined, otherwise show power reading
+            text.setAttribute('x',                centerX);
+            text.setAttribute('y',                centerY);
+            text.setAttribute('text-anchor',      'middle');
+            text.setAttribute('dominant-baseline','middle');
+            text.setAttribute('class',            'panel-text');
             text.textContent = panel.label || `${power.toFixed(1)}W`;
             group.appendChild(text);
 
             canvas.appendChild(group);
         });
 
-        // Trigger reflow for headless browser compatibility
-        const dummy = canvas.offsetHeight;
-
+        const dummy = canvas.offsetHeight; // trigger reflow for headless browsers
         this.updateViewBox();
     }
 
@@ -841,28 +800,58 @@ class SolarPanelMonitor {
             planeRotation: panel.planeRotation,
             inverterSerialNumber: panel.inverterSerialNumber,
             serialNumber: panel.serialNumber,
-            ...(panel.label ? { label: panel.label } : {}),
+            ...(panel.label      ? { label:      panel.label      } : {}),
             ...(panel.ratedWatts ? { ratedWatts: panel.ratedWatts } : {})
         }));
 
-        const jsonString = JSON.stringify(exportData, null, 4);
-        const configString = `    localLayout: ${jsonString}`;
-
-        const blob = new Blob([configString], { type: 'text/plain' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = 'panel-layout-export.txt';
+        const jsonString   = JSON.stringify(exportData, null, 4);
+        const blob         = new Blob([jsonString], { type: 'application/json' });
+        const url          = URL.createObjectURL(blob);
+        const a            = document.createElement('a');
+        a.href             = url;
+        a.download         = 'panel-layout-export.json';
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
 
-        navigator.clipboard.writeText(configString).then(() => {
-            this.updateStatus(`Layout exported & copied to clipboard (${this.panels.length} panels)`);
-        }).catch(() => {
-            this.updateStatus(`Layout exported to file (${this.panels.length} panels)`);
-        });
+        this.updateStatus(`Layout exported (${this.panels.length} panels)`);
+    }
+
+    async saveLayoutToServer() {
+        if (!this.panels || this.panels.length === 0) {
+            alert('No panels to save');
+            return;
+        }
+
+        const saveData = this.panels.map(panel => ({
+            id: panel.id,
+            x: panel.x,
+            y: panel.y,
+            width: panel.width,
+            height: panel.height,
+            planeRotation: panel.planeRotation,
+            inverterSerialNumber: panel.inverterSerialNumber,
+            serialNumber: panel.serialNumber,
+            ...(panel.label      ? { label:      panel.label      } : {}),
+            ...(panel.ratedWatts ? { ratedWatts: panel.ratedWatts } : {})
+        }));
+
+        try {
+            const response = await fetch('api.php?action=save_layout', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(saveData),
+            });
+            const result = await response.json();
+            if (result.ok) {
+                this.updateStatus(`Layout saved to server (${result.count} panels)`);
+            } else {
+                this.updateStatus(`Save failed: ${result.error || 'unknown error'}`);
+            }
+        } catch (err) {
+            this.updateStatus(`Save failed: ${err.message}`);
+        }
     }
 
     importPanelLayout(e) {
@@ -873,8 +862,6 @@ class SolarPanelMonitor {
         reader.onload = (event) => {
             try {
                 let text = event.target.result.trim();
-
-                // Strip leading "localLayout:" prefix if present (from exported format)
                 text = text.replace(/^[\s\S]*?(\[)/, '$1');
 
                 const match = text.match(/\[[\s\S]*\]/);
@@ -890,7 +877,7 @@ class SolarPanelMonitor {
                     id: panel.id || `panel-${index}`,
                     x: panel.x || 0,
                     y: panel.y || 0,
-                    width: panel.width || 80,
+                    width:  panel.width  || 80,
                     height: panel.height || 120,
                     planeRotation: panel.planeRotation || 0
                 }));
@@ -906,7 +893,7 @@ class SolarPanelMonitor {
             }
         };
         reader.readAsText(file);
-        e.target.value = ''; // Allow re-importing the same file
+        e.target.value = '';
     }
 }
 

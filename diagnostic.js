@@ -224,7 +224,7 @@ const DIAGNOSTIC_ENDPOINTS = [
     },
 ];
 
-function openDiagnosticWindow(apiBaseUrl) {
+function openDiagnosticWindow() {
     const win = window.open('', '_blank', 'width=960,height=860,scrollbars=yes,resizable=yes');
     if (!win) {
         alert('Could not open the diagnostic window. Please allow pop-ups for this page.');
@@ -238,8 +238,11 @@ function openDiagnosticWindow(apiBaseUrl) {
         groups[ep.tag].push(ep);
     });
 
-    const groupsJson = JSON.stringify(groups);
+    const groupsJson    = JSON.stringify(groups);
     const endpointsJson = JSON.stringify(DIAGNOSTIC_ENDPOINTS);
+
+    // Proxy base — all fetches go through api.php on the same origin
+    const proxyBase = window.location.origin + window.location.pathname.replace(/[^/]*$/, '') + 'api.php?action=proxy&path=';
 
     const html = `<!DOCTYPE html>
 <html lang="en">
@@ -303,12 +306,6 @@ function openDiagnosticWindow(apiBaseUrl) {
             font-weight: 700;
             color: #4ade80;
         }
-        .op-id a {
-            color: inherit;
-            text-decoration: none;
-            border-bottom: 1px dashed #4ade80;
-        }
-        .op-id a:hover { color: #86efac; border-bottom-color: #86efac; }
         .op-summary { color: #9ca3af; font-size: 0.82rem; flex: 1; }
         .badge {
             font-size: 0.7rem;
@@ -318,8 +315,8 @@ function openDiagnosticWindow(apiBaseUrl) {
             white-space: nowrap;
         }
         .badge-loading { background: #374151; color: #9ca3af; }
-        .badge-ok { background: #14532d; color: #86efac; }
-        .badge-error { background: #450a0a; color: #fca5a5; }
+        .badge-ok      { background: #14532d; color: #86efac; }
+        .badge-error   { background: #450a0a; color: #fca5a5; }
         .card-body { padding: 0.75rem 0.85rem; }
 
         pre {
@@ -332,31 +329,28 @@ function openDiagnosticWindow(apiBaseUrl) {
         .spinner { color: #6b7280; font-style: italic; font-size: 0.82rem; }
 
         /* JSON syntax colours */
-        .json-key   { color: #93c5fd; }
-        .json-str   { color: #86efac; }
-        .json-num   { color: #fde68a; }
-        .json-bool  { color: #f9a8d4; }
-        .json-null  { color: #f9a8d4; }
-        .err-text   { color: #fca5a5; }
+        .json-key  { color: #93c5fd; }
+        .json-str  { color: #86efac; }
+        .json-num  { color: #fde68a; }
+        .json-bool { color: #f9a8d4; }
+        .json-null { color: #f9a8d4; }
+        .err-text  { color: #fca5a5; }
     </style>
 </head>
 <body>
     <header>
         <h1>PVS6 System Diagnostics</h1>
         <p class="meta">
-            Base URL: <code id="baseUrlDisplay"></code>
-            &nbsp;&mdash;&nbsp; Fetching ${DIAGNOSTIC_ENDPOINTS.length} read-only endpoints
+            Fetching ${DIAGNOSTIC_ENDPOINTS.length} read-only endpoints via server proxy
             &nbsp;&mdash;&nbsp; <span id="doneCount">0</span> / ${DIAGNOSTIC_ENDPOINTS.length} complete
         </p>
     </header>
     <div id="container"></div>
 
     <script>
-        const API_BASE = ${JSON.stringify(apiBaseUrl)};
-        const GROUPS   = ${groupsJson};
-        const ENDPOINTS = ${endpointsJson};
-
-        document.getElementById('baseUrlDisplay').textContent = API_BASE;
+        const PROXY_BASE = ${JSON.stringify(proxyBase)};
+        const GROUPS     = ${groupsJson};
+        const ENDPOINTS  = ${endpointsJson};
 
         let doneCount = 0;
 
@@ -385,16 +379,14 @@ function openDiagnosticWindow(apiBaseUrl) {
             section.innerHTML = '<div class="section-title">' + tag + '</div>';
 
             endpoints.forEach(ep => {
-                const url = API_BASE + ep.path;
                 const card = document.createElement('div');
                 card.className = 'card';
                 card.id = 'card-' + ep.operationId.replace(/[^a-zA-Z0-9]/g, '_');
 
                 card.innerHTML =
                     '<div class="card-header">' +
-                        '<span class="op-id"><a href="' + encodeURI(url) + '" target="_blank" title="Open in new tab">' +
-                            escapeHtml(ep.operationId) + ' &#8599;</a></span>' +
-                        '<span class="op-summary">' + escapeHtml(ep.summary) + '</span>' +
+                        '<span class="op-id">' + escapeHtml(ep.operationId) + '</span>' +
+                        '<span class="op-summary">' + escapeHtml(ep.path) + ' &mdash; ' + escapeHtml(ep.summary) + '</span>' +
                         '<span class="badge badge-loading" id="badge-' + ep.operationId.replace(/[^a-zA-Z0-9]/g, '_') + '">Loading...</span>' +
                     '</div>' +
                     '<div class="card-body">' +
@@ -415,12 +407,12 @@ function openDiagnosticWindow(apiBaseUrl) {
                 .replace(/"/g, '&quot;');
         }
 
-        // ── Fetch all endpoints ─────────────────────────────────────────────
+        // ── Fetch all endpoints via the server proxy ────────────────────────
         ENDPOINTS.forEach(ep => {
             const safeId = ep.operationId.replace(/[^a-zA-Z0-9]/g, '_');
-            const badge = document.getElementById('badge-' + safeId);
+            const badge  = document.getElementById('badge-' + safeId);
             const respEl = document.getElementById('resp-' + safeId);
-            const url = API_BASE + ep.path;
+            const url    = PROXY_BASE + encodeURIComponent(ep.path);
 
             fetch(url)
                 .then(resp => {
@@ -443,8 +435,8 @@ function openDiagnosticWindow(apiBaseUrl) {
                 })
                 .catch(err => {
                     badge.textContent = 'Error';
-                    badge.className = 'badge badge-error';
-                    respEl.innerHTML = '<span class="err-text">' + escapeHtml(err.message) + '</span>';
+                    badge.className   = 'badge badge-error';
+                    respEl.innerHTML  = '<span class="err-text">' + escapeHtml(err.message) + '</span>';
                     respEl.classList.remove('spinner');
                 })
                 .finally(() => {
