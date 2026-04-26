@@ -1,6 +1,6 @@
 # SolarPaneler
 
-Render SunPower PVS6 Solar Panels in your browser, automatically finding the placement of your panels and
+Render SunPower PVS6 Solar Panels in your browser, ~~automatically finding the placement of your panels~~ and
 showing power production and panel details for each. Includes handy access to detailed diagnostics of
 your PVS6 system.
 
@@ -10,11 +10,22 @@ Detailed post at [Self Hosting PVS6 Monitoring (software included!)](https://bre
 
 ## Requirements
 
-You need to get network connectivity to your PVS6 (see blog post above for tips). The current version of
-this app makes the calls to the PVS6 directly from the web browser (no server is needed at all), and that
-means the device running the browser must be able to reach the PVS6 on the network).
+You need to get network connectivity to your PVS6 (see blog post above for tips). 
 
-I don't have a full list of PVS6 firmware versions supported, but (at very least) 2025.06, Build 61839 works.
+This update supports the SunStrong firmware changes, tested with 2025.10, Build 61846, but probably works
+with anything after 2025.06, Build 61839. Due to chnages with the PVS6 serving, it is no longer possible
+to run this as 100% standalone webpage, it will require running from a server that has access to the PVS6.
+Currently some functionality is limited, notably the automatic reading of the panel layout (it looks like
+SunStrong requires installer-level access to read this now 😒), so you can still manually set your layout.
+
+The current update is still very much a work in progress in migrating to the SunStrong API.
+
+Previous versions of this app make the calls to the PVS6 directly from the web browser (no server 
+is needed at all), and that means the device running the browser must be able to reach the PVS6 on 
+the network). Do to changes from SunPower / SunStrong, this only works with firmware 2025.06, Build 61839
+and earlier (pull earlier versions of this app if that is your firmaware)
+
+
 
 ## Setup
 

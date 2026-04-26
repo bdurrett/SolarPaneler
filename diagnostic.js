@@ -5,7 +5,7 @@ const DIAGNOSTIC_ENDPOINTS = [
     {
         operationId: 'getSupervisorInfo',
         summary: 'PVS model, firmware version, build, and serial number',
-        path: '/dl_cgi/supervisor/info',
+        path: '/cgi-bin/dl_cgi/supervisor/info',
         tag: 'System'
     },
 
@@ -13,37 +13,37 @@ const DIAGNOSTIC_ENDPOINTS = [
     {
         operationId: 'getPowerProduction',
         summary: 'Whether power production is currently enabled or disabled',
-        path: '/dl_cgi/network/powerProduction',
+        path: '/cgi-bin/dl_cgi/network/powerProduction',
         tag: 'Power & Grid'
     },
     {
         operationId: 'getGridVoltage',
         summary: 'Configured grid voltage (208 V or 240 V)',
-        path: '/dl_cgi/grid/voltage',
+        path: '/cgi-bin/dl_cgi/grid/voltage',
         tag: 'Power & Grid'
     },
     {
         operationId: 'getGridExportLimit',
         summary: 'Current grid export limit (enabled, factor, and limit)',
-        path: '/dl_cgi/grid/export_limit',
+        path: '/cgi-bin/dl_cgi/grid/export_limit',
         tag: 'Power & Grid'
     },
     {
         operationId: 'getGridProfileV1',
         summary: 'Active grid profile name, pending profile, and apply progress',
-        path: '/dl_cgi/grid/profile',
+        path: '/cgi-bin/dl_cgi/grid/profile',
         tag: 'Power & Grid'
     },
     {
         operationId: 'getGridProfile',
         summary: 'Active grid profile detail per subsystem (v2)',
-        path: '/dl_cgi/grid/v2/profile',
+        path: '/cgi-bin/dl_cgi/grid/v2/profile',
         tag: 'Power & Grid'
     },
     {
         operationId: 'getGridProfiles',
         summary: 'Full list of all available grid profiles on the PVS',
-        path: '/dl_cgi/grid/profiles',
+        path: '/cgi-bin/dl_cgi/grid/profiles',
         tag: 'Power & Grid'
     },
 
@@ -51,19 +51,19 @@ const DIAGNOSTIC_ENDPOINTS = [
     {
         operationId: 'getDevices',
         summary: 'Full device list (inverters, meters, PVS supervisor, etc.)',
-        path: '/dl_cgi/devices/list',
+        path: '/cgi-bin/dl_cgi/devices/list',
         tag: 'Devices'
     },
     {
         operationId: 'getCandidates',
         summary: 'Candidate devices queued for connectivity checks',
-        path: '/dl_cgi/candidates',
+        path: '/cgi-bin/dl_cgi/candidates',
         tag: 'Devices'
     },
     {
         operationId: 'getPingableDevices',
         summary: 'Devices that can be pinged for connectivity testing',
-        path: '/dl_cgi/network/getPingableDevices',
+        path: '/cgi-bin/dl_cgi/network/getPingableDevices',
         tag: 'Devices'
     },
 
@@ -71,7 +71,7 @@ const DIAGNOSTIC_ENDPOINTS = [
     {
         operationId: 'getPanelsLayout',
         summary: 'Panel layout stored on the PVS (positions and serial numbers)',
-        path: '/dl_cgi/panels/layout',
+        path: '/cgi-bin/dl_cgi/panels/layout',
         tag: 'Panels'
     },
 
@@ -79,55 +79,55 @@ const DIAGNOSTIC_ENDPOINTS = [
     {
         operationId: 'getNetworkInterfaces',
         summary: 'Network interface names and basic status',
-        path: '/dl_cgi/network/interfaces',
+        path: '/cgi-bin/dl_cgi/network/interfaces',
         tag: 'Network'
     },
     {
         operationId: 'getGeneralNetworkSettings',
         summary: 'General network configuration (hostname, DNS, NTP, etc.)',
-        path: '/dl_cgi/network/settings',
+        path: '/cgi-bin/dl_cgi/network/settings',
         tag: 'Network'
     },
     {
         operationId: 'getFirewallSettings',
         summary: 'Firewall rules and settings',
-        path: '/dl_cgi/network/firewallSettings',
+        path: '/cgi-bin/dl_cgi/network/firewallSettings',
         tag: 'Network'
     },
     {
         operationId: 'getWhitelist',
         summary: 'Network whitelist entries',
-        path: '/dl_cgi/network/whitelist',
+        path: '/cgi-bin/dl_cgi/network/whitelist',
         tag: 'Network'
     },
     {
         operationId: 'getInterfaceConfig (eth)',
         summary: 'Ethernet interface configuration (IP, DHCP, gateway, etc.)',
-        path: '/dl_cgi/network/interfaceConfig/eth',
+        path: '/cgi-bin/dl_cgi/network/interfaceConfig/eth',
         tag: 'Network'
     },
     {
         operationId: 'getInterfaceConfig (wifi)',
         summary: 'WiFi interface configuration',
-        path: '/dl_cgi/network/interfaceConfig/wifi',
+        path: '/cgi-bin/dl_cgi/network/interfaceConfig/wifi',
         tag: 'Network'
     },
     {
         operationId: 'getInterfaceConfig (plc)',
         summary: 'Powerline (PLC) interface configuration',
-        path: '/dl_cgi/network/interfaceConfig/plc',
+        path: '/cgi-bin/dl_cgi/network/interfaceConfig/plc',
         tag: 'Network'
     },
     {
         operationId: 'pingStatus',
         summary: 'Output of any currently running ping process',
-        path: '/dl_cgi/network/ping',
+        path: '/cgi-bin/dl_cgi/network/ping',
         tag: 'Network'
     },
     {
         operationId: 'tunnelStatus',
         summary: 'Status of any open SSH tunnels',
-        path: '/dl_cgi/network/tunnel',
+        path: '/cgi-bin/dl_cgi/network/tunnel',
         tag: 'Network'
     },
 
@@ -135,43 +135,43 @@ const DIAGNOSTIC_ENDPOINTS = [
     {
         operationId: 'getInterfaces',
         summary: 'Full detail for all communication interfaces (cell, WiFi, PLC, WAN)',
-        path: '/dl_cgi/communication/interfaces',
+        path: '/cgi-bin/dl_cgi/communication/interfaces',
         tag: 'Communication'
     },
     {
         operationId: 'getInterface (cell)',
         summary: 'Cellular interface details (signal, carrier, data usage)',
-        path: '/dl_cgi/communication/interface/cell',
+        path: '/cgi-bin/dl_cgi/communication/interface/cell',
         tag: 'Communication'
     },
     {
         operationId: 'getInterface (sta0)',
         summary: 'WiFi station interface details',
-        path: '/dl_cgi/communication/interface/sta0',
+        path: '/cgi-bin/dl_cgi/communication/interface/sta0',
         tag: 'Communication'
     },
     {
         operationId: 'getInterface (wan)',
         summary: 'WAN interface details',
-        path: '/dl_cgi/communication/interface/wan',
+        path: '/cgi-bin/dl_cgi/communication/interface/wan',
         tag: 'Communication'
     },
     {
         operationId: 'accessPoints',
         summary: 'Available WiFi access points visible to the PVS',
-        path: '/dl_cgi/communication/ap',
+        path: '/cgi-bin/dl_cgi/communication/ap',
         tag: 'Communication'
     },
     {
         operationId: 'isCellularPrimary',
         summary: 'Whether cellular is set as the primary network connection',
-        path: '/dl_cgi/communication/cellular/primary',
+        path: '/cgi-bin/dl_cgi/communication/cellular/primary',
         tag: 'Communication'
     },
     {
         operationId: 'isCellularPurchased',
         summary: 'Whether a cellular data plan has been purchased',
-        path: '/dl_cgi/communication/cellular/purchased',
+        path: '/cgi-bin/dl_cgi/communication/cellular/purchased',
         tag: 'Communication'
     },
 
@@ -179,13 +179,13 @@ const DIAGNOSTIC_ENDPOINTS = [
     {
         operationId: 'getNewFirmwareVersion',
         summary: 'URL of newer firmware if an update is available',
-        path: '/dl_cgi/firmware/new_version',
+        path: '/cgi-bin/dl_cgi/firmware/new_version',
         tag: 'Firmware'
     },
     {
         operationId: 'getUpgradeStatus',
         summary: 'Status and progress of any firmware upgrade in progress',
-        path: '/dl_cgi/firmware/upgrade',
+        path: '/cgi-bin/dl_cgi/firmware/upgrade',
         tag: 'Firmware'
     },
 
@@ -193,19 +193,19 @@ const DIAGNOSTIC_ENDPOINTS = [
     {
         operationId: 'getEssStatus',
         summary: 'Status of all energy storage system devices and any parameter errors',
-        path: '/dl_cgi/energy-storage-system/status',
+        path: '/cgi-bin/dl_cgi/energy-storage-system/status',
         tag: 'Energy Storage'
     },
     {
         operationId: 'getDeviceList (ESS pre-discover)',
         summary: 'All devices with ESS discovery errors (pre-commissioning)',
-        path: '/dl_cgi/energy-storage-system/pre-discover',
+        path: '/cgi-bin/dl_cgi/energy-storage-system/pre-discover',
         tag: 'Energy Storage'
     },
     {
         operationId: 'getFirmwareUpdateStatus',
         summary: 'Status of any ESS component firmware update in progress',
-        path: '/dl_cgi/energy-storage-system/firmware/status',
+        path: '/cgi-bin/dl_cgi/energy-storage-system/firmware/status',
         tag: 'Energy Storage'
     },
 
@@ -213,13 +213,13 @@ const DIAGNOSTIC_ENDPOINTS = [
     {
         operationId: 'getSystemHealthCheckList',
         summary: 'All available equinox system health checks',
-        path: '/dl_cgi/equinox-system-check/list',
+        path: '/cgi-bin/dl_cgi/equinox-system-check/list',
         tag: 'Health'
     },
     {
         operationId: 'getSystemHealthReport',
         summary: 'Results and progress of the last system health check run',
-        path: '/dl_cgi/equinox-system-check',
+        path: '/cgi-bin/dl_cgi/equinox-system-check',
         tag: 'Health'
     },
 ];

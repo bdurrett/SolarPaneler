@@ -189,10 +189,10 @@ function handle_layout(array $cfg, string $cookie_file, string $layout_file): st
     }
 
     // Fall through: fetch from PVS6 and cache the raw response
-    $result = pvs_get($cfg, $cookie_file, '/dl_cgi/panels/layout');
+    $result = pvs_get($cfg, $cookie_file, '/cgi-bin/dl_cgi/panels/layout');
     if (isset($result['error'])) {
-        // 404 means the layout endpoint doesn't exist in this firmware — return empty
-        // so the app falls back to default panels rather than showing a 502 error
+        // Endpoint not available in this firmware — return empty so the app
+        // falls back to auto-generating panels from inverter data
         return json_encode(['panels' => [], 'source' => 'pvs6_unavailable']);
     }
 
@@ -224,21 +224,44 @@ function handle_save_layout(string $layout_file): string
     return json_encode(['ok' => true, 'count' => count($panels)]);
 }
 
-function handle_proxy(array $cfg, string $cookie_file): string
+function handle_proxy(array $cfg, string $token_file): string
 {
     $path = $_GET['path'] ?? '';
 
     // Only allow read-only dl_cgi paths to limit SSRF surface
-    if (!preg_match('#^/dl_cgi/[a-zA-Z0-9/_-]+$#', $path)) {
+    if (!preg_match('#^/cgi-bin/dl_cgi/[a-zA-Z0-9/_-]+$#', $path)) {
         http_response_code(400);
         return json_encode(['error' => 'Invalid path']);
     }
 
-    $result = pvs_get($cfg, $cookie_file, $path);
-    if (isset($result['error']) && !isset($result['status'])) {
-        http_response_code(502);
+    $url    = 'https://' . $cfg['pvs_host'] . $path;
+    $verify = $cfg['pvs_ssl_verify'] ?? false;
+
+    // Get (or refresh) session token
+    $token = pvs_load_token($token_file);
+    if (!$token) {
+        pvs_login($cfg, $token_file);
+        $token = pvs_load_token($token_file);
     }
-    return json_encode($result);
+
+    $result = pvs_curl($url, $token ? ['Cookie: session=' . $token] : [], $verify);
+
+    // Re-login once on auth failure
+    if (pvs_is_auth_failure($result)) {
+        pvs_login($cfg, $token_file);
+        $token  = pvs_load_token($token_file);
+        $result = pvs_curl($url, $token ? ['Cookie: session=' . $token] : [], $verify);
+    }
+
+    // Pass the real PVS6 status through so the diagnostics page sees 200/404/403/etc.
+    // rather than a blanket 502 for anything unexpected
+    $status = $result['status'] ?: 502;
+    http_response_code($status);
+
+    $data = json_decode($result['body'], true);
+    return $data !== null
+        ? json_encode($data)
+        : json_encode(['raw' => $result['body'], 'http_status' => $status]);
 }
 
 // ---------------------------------------------------------------------------
