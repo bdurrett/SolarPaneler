@@ -127,17 +127,22 @@ class SolarPanelMonitor {
                 const x = panel.xCoordinate || panel.x || (index % 10) * 120 + 50;
                 const y = (panel.yCoordinate || panel.y || Math.floor(index / 10) * 120 + 50) + yOffset;
                 const rotation = (panel.planeRotation || 0) % 360;
-                const baseWidth = panel.width || 80;
-                const baseHeight = panel.height || 120;
 
+                // If the layout already has explicit dimensions (exported or config layouts),
+                // use them directly — they're already post-rotation.
+                // Only apply rotation swap when falling back to default base dimensions.
                 let width, height;
-                if (rotation === 0 || rotation === 180) {
-                    width = baseWidth; height = baseHeight;
-                } else if (rotation === 90 || rotation === 270) {
-                    width = baseHeight; height = baseWidth;
+                if (panel.width !== undefined && panel.height !== undefined) {
+                    width = panel.width;
+                    height = panel.height;
                 } else {
-                    const maxDim = Math.max(baseWidth, baseHeight);
-                    width = maxDim; height = maxDim;
+                    const baseWidth = 80;
+                    const baseHeight = 120;
+                    if (rotation === 90 || rotation === 270) {
+                        width = baseHeight; height = baseWidth;
+                    } else {
+                        width = baseWidth; height = baseHeight;
+                    }
                 }
 
                 return {
