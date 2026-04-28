@@ -274,6 +274,140 @@ const VARSERVER_GROUPS = [
     },
 ];
 
+// Description lookup keyed by varserver name.
+// Entries with {index} in the path cover all indexed devices — the lookup
+// normalises actual names (e.g. /sys/devices/inverter/0/p3phsumKw) by
+// replacing any all-digit path segment with {index} before the lookup.
+const VARSERVER_DESCRIPTIONS = {
+    // /net/
+    '/net/sta0/state':  'sta0 interface state',
+    '/net/wan0/state':  'wan0 interface state',
+    '/net/wan1/state':  'wan1 (USB dongle ethernet adapter) interface state',
+    '/net/wwan0/state': 'wwan0 interface state',
+
+    // /sys/devices/ess/{index}/
+    '/sys/devices/ess/{index}/chrgLimitPmaxKw':   'Maximum allowed charge power (kW)',
+    '/sys/devices/ess/{index}/customerSocVal':    'Customer-reported state of charge (SOC) value',
+    '/sys/devices/ess/{index}/dischrgLimPmaxKw':  'Maximum allowed discharge power (kW)',
+    '/sys/devices/ess/{index}/maxTBattCellDegc':  'Maximum battery cell temperature (°C)',
+    '/sys/devices/ess/{index}/maxVBattCellV':     'Maximum battery cell voltage (V)',
+    '/sys/devices/ess/{index}/minTBattCellDegc':  'Minimum battery cell temperature (°C)',
+    '/sys/devices/ess/{index}/minVBattCellV':     'Minimum battery cell voltage (V)',
+    '/sys/devices/ess/{index}/msmtEps':           'Timestamp of the last measurement',
+    '/sys/devices/ess/{index}/negLtea3phsumKwh':  'Total negative energy (kWh) over 3 phases',
+    '/sys/devices/ess/{index}/opMode':            'Operating mode of the ESS',
+    '/sys/devices/ess/{index}/p3phsumKw':         'Total real power (kW) over 3 phases',
+    '/sys/devices/ess/{index}/posLtea3phsumKwh':  'Total positive energy (kWh) over 3 phases',
+    '/sys/devices/ess/{index}/prodMdlNm':         'Product model name',
+    '/sys/devices/ess/{index}/sn':                'Device serial number',
+    '/sys/devices/ess/{index}/socVal':            'State of charge (SOC) value',
+    '/sys/devices/ess/{index}/sohVal':            'State of health (SOH) value',
+    '/sys/devices/ess/{index}/tInvtrDegc':        'Inverter temperature (°C)',
+    '/sys/devices/ess/{index}/v1nV':              'Voltage between phase 1 and neutral (V)',
+    '/sys/devices/ess/{index}/v2nV':              'Voltage between phase 2 and neutral (V)',
+    '/sys/devices/ess/{index}/vBattV':            'Battery voltage (V)',
+
+    // /sys/devices/inverter/{index}/
+    '/sys/devices/inverter/{index}/freqHz':          'Frequency in Hz detected by the inverter',
+    '/sys/devices/inverter/{index}/i3phsumA':        'Sum of phase currents in A',
+    '/sys/devices/inverter/{index}/iMppt1A':         'Current of MPPT1 in A',
+    '/sys/devices/inverter/{index}/ltea3phsumKwh':   'Lifetime sum of 3-phase energy in kWh',
+    '/sys/devices/inverter/{index}/msmtEps':         'Timestamp of the last measurement',
+    '/sys/devices/inverter/{index}/p3phsumKw':       'Sum of 3-phase power in kW',
+    '/sys/devices/inverter/{index}/pMppt1Kw':        'Power of MPPT1 in kW',
+    '/sys/devices/inverter/{index}/prodMdlNm':       'Product model name',
+    '/sys/devices/inverter/{index}/sn':              'Serial number of the inverter',
+    '/sys/devices/inverter/{index}/tHtsnkDegc':      'Temperature of the heat sink in °C',
+    '/sys/devices/inverter/{index}/vMppt1V':         'Voltage of MPPT1 in V',
+    '/sys/devices/inverter/{index}/vln3phavgV':      'Average line-to-neutral voltage of 3-phase system in V',
+
+    // /sys/devices/meter/{index}/
+    '/sys/devices/meter/{index}/ctSclFctr':          'CT scaling factor',
+    '/sys/devices/meter/{index}/freqHz':             'Frequency in Hz',
+    '/sys/devices/meter/{index}/i1A':                'Current in A for phase 1',
+    '/sys/devices/meter/{index}/i2A':                'Current in A for phase 2',
+    '/sys/devices/meter/{index}/msmtEps':            'Timestamp of the last measurement',
+    '/sys/devices/meter/{index}/negLtea3phsumKwh':   'Negative lifetime sum of 3-phase energy in kWh',
+    '/sys/devices/meter/{index}/netLtea3phsumKwh':   'Net lifetime sum of 3-phase energy in kWh',
+    '/sys/devices/meter/{index}/p1Kw':               'Power in kW for phase 1',
+    '/sys/devices/meter/{index}/p2Kw':               'Power in kW for phase 2',
+    '/sys/devices/meter/{index}/p3phsumKw':          'Sum of 3-phase power in kW',
+    '/sys/devices/meter/{index}/posLtea3phsumKwh':   'Positive lifetime sum of 3-phase energy in kWh',
+    '/sys/devices/meter/{index}/prodMdlNm':          'Product model name',
+    '/sys/devices/meter/{index}/q3phsumKvar':        'Sum of 3-phase reactive power in kVar',
+    '/sys/devices/meter/{index}/s3phsumKva':         'Sum of 3-phase apparent power in kVA',
+    '/sys/devices/meter/{index}/sn':                 'Serial number of the meter',
+    '/sys/devices/meter/{index}/totPfRto':           'Total power factor ratio',
+    '/sys/devices/meter/{index}/v12V':               'Voltage between phase 1 and 2 in V',
+    '/sys/devices/meter/{index}/v1nV':               'Voltage between phase 1 and neutral in V',
+    '/sys/devices/meter/{index}/v2nV':               'Voltage between phase 2 and neutral in V',
+
+    // /sys/devices/transfer_switch/{index}/
+    '/sys/devices/transfer_switch/{index}/midStEnum':   'MID state',
+    '/sys/devices/transfer_switch/{index}/msmtEps':     'Timestamp of the last measurement',
+    '/sys/devices/transfer_switch/{index}/prodMdlNm':   'Product model name',
+    '/sys/devices/transfer_switch/{index}/pvd1StEnum':  'PV Disconnect (PVD) state',
+    '/sys/devices/transfer_switch/{index}/sn':          'Serial number of the transfer switch',
+    '/sys/devices/transfer_switch/{index}/tDegc':       'Temperature in degrees Celsius',
+    '/sys/devices/transfer_switch/{index}/v1nGridV':    'Grid voltage for phase 1',
+    '/sys/devices/transfer_switch/{index}/v1nV':        'Voltage between phase 1 and neutral',
+    '/sys/devices/transfer_switch/{index}/v2nGridV':    'Grid voltage between phase 2 and neutral',
+    '/sys/devices/transfer_switch/{index}/v2nV':        'Voltage between phase 2 and neutral',
+    '/sys/devices/transfer_switch/{index}/vSpplyV':     'Supply voltage',
+
+    // /sys/info/
+    '/sys/info/active_interface':     'Current active network interface',
+    '/sys/info/active_interface_mac': 'Current active network interface MAC address',
+    '/sys/info/boardtype':            'PVS board type',
+    '/sys/info/cpu_usage':            'Current CPU usage in percentage',
+    '/sys/info/finance_type':         'Finance type for the site (UNKNOWN, CASH, LEASE, or LOAN)',
+    '/sys/info/flash_usage':          'Current flash usage in percentage',
+    '/sys/info/fwrev':                'PVS firmware revision',
+    '/sys/info/hwrev':                'PVS hardware revision',
+    '/sys/info/lmac':                 'LAN0 MAC address',
+    '/sys/info/model':                'PVS model number',
+    '/sys/info/ram_usage':            'Current RAM usage in percentage',
+    '/sys/info/serialnum':            'PVS serial number',
+    '/sys/info/ssid':                 'PVS SSID',
+    '/sys/info/sw_rev':               'SPWR software revision',
+    '/sys/info/sys_type':             'System type (PV-only, storage)',
+    '/sys/info/uptime':               'PVS uptime',
+    '/sys/info/wpa_key':              'PVS WPA key',
+
+    // /sys/livedata/
+    '/sys/livedata/backupTimeRemaining': 'Battery backup time remaining (minutes)',
+    '/sys/livedata/ess_en':              'Battery energy (kWh)',
+    '/sys/livedata/ess_p':              'Battery power (kW)',
+    '/sys/livedata/midstate':           'MID state',
+    '/sys/livedata/net_en':             'Net consumption energy (kWh)',
+    '/sys/livedata/net_p':              'Net consumption power (kW)',
+    '/sys/livedata/pv_en':              'Production energy (kWh)',
+    '/sys/livedata/pv_p':               'Production power (kW)',
+    '/sys/livedata/site_load_en':       'Site load energy (kWh)',
+    '/sys/livedata/site_load_p':        'Site load power (kW)',
+    '/sys/livedata/soc':                'Battery state of charge (%)',
+    '/sys/livedata/time':               'Telemetry websockets timestamp',
+
+    // /sys/pvs/
+    '/sys/pvs/flashwear_type_b': 'Percentage lifetime estimation as HEX value (0x01 = 10%, 0x9 = 90%) for TYPE B cell',
+    '/sys/pvs/usb_erase_count':  'SMART Attribute 229 erase count — measures USB drive health',
+
+    // /sys/toggle_cell/
+    '/sys/toggle_cell/broadband_connected': 'Broadband connection status (0 = disconnected, 1 = connected)',
+    '/sys/toggle_cell/cell_connected':      'Cell connection status (0 = disconnected, 1 = connected)',
+    '/sys/toggle_cell/low_data_mode':       'Toggle-cell low data mode status',
+};
+
+// top-level const/let do NOT become window properties in modern browsers,
+// so explicitly attach to window so the same-origin diagnostics popup can
+// reach it via window.opener without re-serialising the object into HTML.
+window.VARSERVER_DESCRIPTIONS = VARSERVER_DESCRIPTIONS;
+
+function normalizeVarName(name) {
+    // Function declarations DO land on window automatically.
+    return name.replace(/\/\d+\//g, '/{index}/');
+}
+
 function openDiagnosticWindow() {
     const win = window.open('', '_blank', 'width=960,height=860,scrollbars=yes,resizable=yes');
     if (!win) {
@@ -415,8 +549,9 @@ function openDiagnosticWindow() {
             vertical-align: top;
         }
         .vars-table tr:last-child td { border-bottom: none; }
-        .vars-table .var-name  { color: #93c5fd; width: 55%; word-break: break-all; }
-        .vars-table .var-value { color: #86efac; }
+        .vars-table .var-name  { color: #93c5fd; width: 40%; word-break: break-all; }
+        .vars-table .var-value { color: #86efac; width: 15%; }
+        .vars-table .var-desc  { color: #9ca3af; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-size: 0.78rem; }
     </style>
 </head>
 <body>
@@ -435,6 +570,12 @@ function openDiagnosticWindow() {
         const GROUPS       = ${groupsJson};
         const ENDPOINTS    = ${endpointsJson};
         const VARS_GROUPS  = ${varsGroupsJson};
+
+        // Access the description map and normaliser from the parent window.
+        // Same-origin popup can read window.opener globals directly — avoids
+        // any regex or special characters inside this template literal.
+        const VARS_DESCS       = (window.opener && window.opener.VARSERVER_DESCRIPTIONS) || {};
+        const normalizeVarName = (window.opener && window.opener.normalizeVarName) || function(n) { return n; };
 
         let doneCount = 0;
         const totalItems  = ${totalItems};
@@ -586,16 +727,18 @@ function openDiagnosticWindow() {
                     }
 
                     // Render as a name/value table — much more readable than raw JSON
-                    let rows = values.map(v =>
-                        '<tr>' +
-                            '<td class="var-name">'  + escapeHtml(v.name)            + '</td>' +
-                            '<td class="var-value">' + escapeHtml(String(v.value ?? '')) + '</td>' +
-                        '</tr>'
-                    ).join('');
+                    let rows = values.map(v => {
+                        const desc = VARS_DESCS[normalizeVarName(v.name)] ?? '';
+                        return '<tr>' +
+                            '<td class="var-name">'  + escapeHtml(v.name)                 + '</td>' +
+                            '<td class="var-value">' + escapeHtml(String(v.value ?? ''))  + '</td>' +
+                            '<td class="var-desc">'  + escapeHtml(desc)                   + '</td>' +
+                        '</tr>';
+                    }).join('');
 
                     bodyEl.innerHTML =
                         '<table class="vars-table">' +
-                            '<thead><tr><th>Variable</th><th>Value</th></tr></thead>' +
+                            '<thead><tr><th>Variable</th><th>Value</th><th>Description</th></tr></thead>' +
                             '<tbody>' + rows + '</tbody>' +
                         '</table>';
                 })

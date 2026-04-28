@@ -23,7 +23,7 @@ and earlier (pull earlier versions of this app if that is your firmaware)
 
 ## Requirements
 
-- A web server with **PHP** (Apache recommended) that has network access to the PVS6
+- A web server with **PHP** (tested with Apache, NGINX should work) that has network access to the PVS6
 - PHP **curl** extension enabled (`php -m | grep curl`)
 - PVS6 on firmware **Build 61840 or later** (SunStrong API)
 
@@ -134,7 +134,7 @@ These can be set by editing `cache/layout.json` directly or by configuring `pane
 
 ## Diagnostics
 
-Click **Diagnostics** to open a separate window that queries ~25 read-only PVS6 endpoints and
+Click **Diagnostics** to open a separate window that queries read-only PVS6 endpoints and
 displays the results — firmware version, network interfaces, grid profile, communication status,
 energy storage, and more.
 
@@ -176,3 +176,9 @@ Normal at night or when the grid is disconnected. If it shows during the day, ch
 
 Layout is stored server-side in `cache/layout.json`, not in the browser. Clearing browser
 storage has no effect on the saved layout.
+
+## References
+
+* [SunStrong API](https://github.com/SunStrong-Management/pypvs/blob/main/doc/LocalAPI.md)
+* [PVS6 Varserver variables](https://github.com/SunStrong-Management/pypvs/blob/main/doc/varserver-variables-public-pvs6.csv)
+
