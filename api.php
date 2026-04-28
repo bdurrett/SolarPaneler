@@ -33,6 +33,9 @@ switch ($action) {
     case 'save_layout':
         echo handle_save_layout($layout_file);
         break;
+    case 'vars':
+        echo handle_vars($config, $cookie_file);
+        break;
     case 'proxy':
         echo handle_proxy($config, $cookie_file);
         break;
@@ -47,6 +50,57 @@ switch ($action) {
 // ---------------------------------------------------------------------------
 // Action handlers
 // ---------------------------------------------------------------------------
+
+function handle_vars(array $cfg, string $cookie_file): string
+{
+    // Read-only endpoint — never accept writes.
+    if ($_SERVER['REQUEST_METHOD'] !== 'GET') {
+        http_response_code(405);
+        return json_encode(['error' => 'GET only']);
+    }
+
+    $match = $_GET['match'] ?? '';
+    $name  = $_GET['name']  ?? '';
+
+    // Whitelist: only /sys/ and /net/ prefixes are read-only in the varserver.
+    // Writable vars live under /ess/config/, /metrics/, /network/, /sys/telemetryws/ — none
+    // of which start with /sys/devices/, /sys/info/, /sys/livedata/, /sys/pvs/,
+    // /sys/toggle_cell/, or /net/, so the whitelist is sufficient.
+    $allowed_prefixes = ['/sys/', '/net/'];
+    $subject = $match !== '' ? $match : $name;
+    $allowed = false;
+    foreach ($allowed_prefixes as $prefix) {
+        if (strpos($subject, $prefix) === 0) {
+            $allowed = true;
+            break;
+        }
+    }
+    if (!$allowed || $subject === '') {
+        http_response_code(403);
+        return json_encode(['error' => 'Only /sys/ and /net/ prefixes are allowed']);
+    }
+
+    // Do NOT urlencode the value — the varserver expects literal slashes in the
+    // match/name prefix (e.g. /sys/info/), not percent-encoded %2F.  This matches
+    // how handle_power() passes /vars?match=/sys/devices/inverter/ directly.
+    // Strip any characters that could break the query string (?, &, #, space).
+    $match = preg_replace('/[?&#\s]/', '', $match);
+    $name  = preg_replace('/[?&#\s]/', '', $name);
+
+    if ($match !== '') {
+        $path = '/vars?match=' . $match;
+    } else {
+        $path = '/vars?name=' . $name;
+    }
+
+    $result = pvs_get($cfg, $cookie_file, $path);
+    if (isset($result['error'])) {
+        http_response_code(502);
+        return json_encode($result);
+    }
+
+    return json_encode($result);
+}
 
 function handle_debug(array $cfg, string $cookie_file): string
 {

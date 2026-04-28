@@ -224,6 +224,56 @@ const DIAGNOSTIC_ENDPOINTS = [
     },
 ];
 
+// Read-only varserver groups from the pypvs CSV.
+// Only /sys/ and /net/ prefixes are used — writable vars live under other roots.
+const VARSERVER_GROUPS = [
+    {
+        label:   'System Info',
+        match:   '/sys/info/',
+        summary: 'Firmware revision, hardware model, serial number, CPU/RAM usage',
+    },
+    {
+        label:   'Live Data',
+        match:   '/sys/livedata/',
+        summary: 'PV power, net power, ESS power, state of charge, site load',
+    },
+    {
+        label:   'Inverters',
+        match:   '/sys/devices/inverter/',
+        summary: 'Per-inverter telemetry — power, voltage, current, temperature, lifetime energy',
+    },
+    {
+        label:   'Meters',
+        match:   '/sys/devices/meter/',
+        summary: 'Revenue-grade meter readings — production and consumption',
+    },
+    {
+        label:   'ESS / Battery',
+        match:   '/sys/devices/ess/',
+        summary: 'Battery state of charge, power, temperature, and fault flags',
+    },
+    {
+        label:   'Transfer Switch',
+        match:   '/sys/devices/transfer_switch/',
+        summary: 'Transfer switch status and mode',
+    },
+    {
+        label:   'Network (net)',
+        match:   '/net/',
+        summary: 'Interface link states for sta0, wan0, wan1, wwan0',
+    },
+    {
+        label:   'PVS Statistics',
+        match:   '/sys/pvs/',
+        summary: 'Flash wear count and USB erase statistics',
+    },
+    {
+        label:   'Cellular Toggle',
+        match:   '/sys/toggle_cell/',
+        summary: 'Broadband / cell connection flags and low-data mode',
+    },
+];
+
 function openDiagnosticWindow() {
     const win = window.open('', '_blank', 'width=960,height=860,scrollbars=yes,resizable=yes');
     if (!win) {
@@ -242,7 +292,13 @@ function openDiagnosticWindow() {
     const endpointsJson = JSON.stringify(DIAGNOSTIC_ENDPOINTS);
 
     // Proxy base — all fetches go through api.php on the same origin
-    const proxyBase = window.location.origin + window.location.pathname.replace(/[^/]*$/, '') + 'api.php?action=proxy&path=';
+    const apiBase   = window.location.origin + window.location.pathname.replace(/[^/]*$/, '') + 'api.php';
+    const proxyBase = apiBase + '?action=proxy&path=';
+    const varsBase  = apiBase + '?action=vars&match=';
+
+    const totalItems = DIAGNOSTIC_ENDPOINTS.length + VARSERVER_GROUPS.length;
+
+    const varsGroupsJson = JSON.stringify(VARSERVER_GROUPS);
 
     const html = `<!DOCTYPE html>
 <html lang="en">
@@ -335,24 +391,53 @@ function openDiagnosticWindow() {
         .json-bool { color: #f9a8d4; }
         .json-null { color: #f9a8d4; }
         .err-text  { color: #fca5a5; }
+
+        /* Varserver variable table */
+        .vars-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-family: 'Menlo', 'Consolas', monospace;
+            font-size: 0.78rem;
+        }
+        .vars-table th {
+            text-align: left;
+            padding: 0.3rem 0.6rem;
+            color: #6b7280;
+            font-size: 0.7rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.07em;
+            border-bottom: 1px solid #2e2e2e;
+        }
+        .vars-table td {
+            padding: 0.3rem 0.6rem;
+            border-bottom: 1px solid #1e1e1e;
+            vertical-align: top;
+        }
+        .vars-table tr:last-child td { border-bottom: none; }
+        .vars-table .var-name  { color: #93c5fd; width: 55%; word-break: break-all; }
+        .vars-table .var-value { color: #86efac; }
     </style>
 </head>
 <body>
     <header>
         <h1>PVS6 System Diagnostics</h1>
         <p class="meta">
-            Fetching ${DIAGNOSTIC_ENDPOINTS.length} read-only endpoints via server proxy
-            &nbsp;&mdash;&nbsp; <span id="doneCount">0</span> / ${DIAGNOSTIC_ENDPOINTS.length} complete
+            Fetching ${totalItems} read-only sources via server proxy
+            &nbsp;&mdash;&nbsp; <span id="doneCount">0</span> / ${totalItems} complete
         </p>
     </header>
     <div id="container"></div>
 
     <script>
-        const PROXY_BASE = ${JSON.stringify(proxyBase)};
-        const GROUPS     = ${groupsJson};
-        const ENDPOINTS  = ${endpointsJson};
+        const PROXY_BASE   = ${JSON.stringify(proxyBase)};
+        const VARS_BASE    = ${JSON.stringify(varsBase)};
+        const GROUPS       = ${groupsJson};
+        const ENDPOINTS    = ${endpointsJson};
+        const VARS_GROUPS  = ${varsGroupsJson};
 
         let doneCount = 0;
+        const totalItems  = ${totalItems};
 
         // ── JSON syntax highlighter ─────────────────────────────────────────
         function syntaxHighlight(obj) {
@@ -370,7 +455,20 @@ function openDiagnosticWindow() {
             });
         }
 
-        // ── Build the DOM structure ─────────────────────────────────────────
+        function escapeHtml(str) {
+            return String(str)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;');
+        }
+
+        function bumpDone() {
+            doneCount++;
+            document.getElementById('doneCount').textContent = doneCount;
+        }
+
+        // ── Build the dl_cgi endpoint cards ─────────────────────────────────
         const container = document.getElementById('container');
 
         Object.entries(GROUPS).forEach(([tag, endpoints]) => {
@@ -399,15 +497,33 @@ function openDiagnosticWindow() {
             container.appendChild(section);
         });
 
-        function escapeHtml(str) {
-            return String(str)
-                .replace(/&/g, '&amp;')
-                .replace(/</g, '&lt;')
-                .replace(/>/g, '&gt;')
-                .replace(/"/g, '&quot;');
-        }
+        // ── Build the varserver variable cards ──────────────────────────────
+        const varsSection = document.createElement('div');
+        varsSection.className = 'section';
+        varsSection.innerHTML = '<div class="section-title">Varserver Variables</div>';
 
-        // ── Fetch all endpoints via the server proxy ────────────────────────
+        VARS_GROUPS.forEach(grp => {
+            const safeId = grp.match.replace(/[^a-zA-Z0-9]/g, '_');
+            const card = document.createElement('div');
+            card.className = 'card';
+            card.id = 'vcard-' + safeId;
+
+            card.innerHTML =
+                '<div class="card-header">' +
+                    '<span class="op-id">' + escapeHtml(grp.label) + '</span>' +
+                    '<span class="op-summary"><code>' + escapeHtml(grp.match) + '</code>&nbsp;&mdash;&nbsp;' + escapeHtml(grp.summary) + '</span>' +
+                    '<span class="badge badge-loading" id="vbadge-' + safeId + '">Loading...</span>' +
+                '</div>' +
+                '<div class="card-body" id="vresp-' + safeId + '">' +
+                    '<span class="spinner">Fetching...</span>' +
+                '</div>';
+
+            varsSection.appendChild(card);
+        });
+
+        container.appendChild(varsSection);
+
+        // ── Fetch all dl_cgi endpoints ───────────────────────────────────────
         ENDPOINTS.forEach(ep => {
             const safeId = ep.operationId.replace(/[^a-zA-Z0-9]/g, '_');
             const badge  = document.getElementById('badge-' + safeId);
@@ -439,10 +555,56 @@ function openDiagnosticWindow() {
                     respEl.innerHTML  = '<span class="err-text">' + escapeHtml(err.message) + '</span>';
                     respEl.classList.remove('spinner');
                 })
-                .finally(() => {
-                    doneCount++;
-                    document.getElementById('doneCount').textContent = doneCount;
-                });
+                .finally(bumpDone);
+        });
+
+        // ── Fetch all varserver groups ───────────────────────────────────────
+        VARS_GROUPS.forEach(grp => {
+            const safeId  = grp.match.replace(/[^a-zA-Z0-9]/g, '_');
+            const badge   = document.getElementById('vbadge-' + safeId);
+            const bodyEl  = document.getElementById('vresp-'  + safeId);
+            const url     = VARS_BASE + encodeURIComponent(grp.match);
+
+            fetch(url)
+                .then(resp => {
+                    const status = resp.status;
+                    return resp.json().then(data => ({ status, data })).catch(() => ({ status, data: null }));
+                })
+                .then(({ status, data }) => {
+                    badge.textContent = status;
+                    badge.className   = 'badge ' + (status === 200 ? 'badge-ok' : 'badge-error');
+
+                    if (status !== 200 || !data) {
+                        bodyEl.innerHTML = '<span class="err-text">' + escapeHtml(JSON.stringify(data)) + '</span>';
+                        return;
+                    }
+
+                    const values = data.values;
+                    if (!Array.isArray(values) || values.length === 0) {
+                        bodyEl.innerHTML = '<span class="spinner">No values returned (device may not be present)</span>';
+                        return;
+                    }
+
+                    // Render as a name/value table — much more readable than raw JSON
+                    let rows = values.map(v =>
+                        '<tr>' +
+                            '<td class="var-name">'  + escapeHtml(v.name)            + '</td>' +
+                            '<td class="var-value">' + escapeHtml(String(v.value ?? '')) + '</td>' +
+                        '</tr>'
+                    ).join('');
+
+                    bodyEl.innerHTML =
+                        '<table class="vars-table">' +
+                            '<thead><tr><th>Variable</th><th>Value</th></tr></thead>' +
+                            '<tbody>' + rows + '</tbody>' +
+                        '</table>';
+                })
+                .catch(err => {
+                    badge.textContent = 'Error';
+                    badge.className   = 'badge badge-error';
+                    bodyEl.innerHTML  = '<span class="err-text">' + escapeHtml(err.message) + '</span>';
+                })
+                .finally(bumpDone);
         });
     <\/script>
 </body>
